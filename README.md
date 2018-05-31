@@ -1,4 +1,4 @@
-#Code for Kluger Lab HNE project
+#Code for HNE project
 
 ## Requirements:
 
