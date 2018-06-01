@@ -2,7 +2,10 @@ import numpy as np
 from PIL import Image
 
 import openslide
+import csv
 from openslide.deepzoom import DeepZoomGenerator
+from Annotation import Annotation
+from Vertex import Vertex
 
 def load_slide(path, save_thumbnail=False):
     """
@@ -55,3 +58,25 @@ def get_patches_from_slide(slide, tile_size=512, overlap=0, limit_bounds=False):
         y += 1
         x = 0
     return patches
+
+def load_annotation(csv_path):
+    """
+    Loads the coordinates of an annotation created with QuPath
+    and stored in a csv file
+
+    Args:
+        csv_path (str): Path to csv file containing annotation
+
+    Returns:
+        annotation (Annotation): Annotation object
+    """
+
+    with open(csv_path) as f:
+        reader = csv.reader(f)
+        vertex_list = []
+        for row in reader:
+            x = row[0]
+            y = row[1]
+            vertex_list.append(Vertex(x, y))
+
+    return Annotation(vertex_list)
