@@ -4,9 +4,8 @@ from PIL import Image
 import openslide
 import csv
 from openslide.deepzoom import DeepZoomGenerator
-from Annotation import Annotation
-from Vertex import Vertex
 from matplotlib.path import Path
+from patch import Patch
 
 def load_slide(path, save_thumbnail=False):
     """
@@ -50,9 +49,10 @@ def get_patches_from_slide(slide, tile_size=512, overlap=0, limit_bounds=False):
     patches = []
     while y < y_tiles:
         while x < x_tiles:
-            new_tile = np.array(tiles.get_tile(level, (x,y)), dtype=np.uint8)
-            if np.shape(new_tile) == (tile_size, tile_size, 3):
-                patches.append(new_tile)
+            new_patch_img = np.array(tiles.get_tile(level, (x,y)), dtype=np.uint8)
+            new_patch_coords = tiles.get_tile_coordinates(level, (x,y))
+            if np.shape(new_patch_img) == (tile_size, tile_size, 3):
+                patches.append(Patch(new_patch_img, new_patch_coords))
                 count += 1
 
             x += 1
@@ -100,9 +100,5 @@ def construct_polygon(vertices):
         polygon (Path object): Path object representing our polygon
     
     """
-    
-    return Path(vertices)
-    
-
-
-
+    polygon = Path(vertices) 
+    return polygon
