@@ -6,6 +6,7 @@ import csv
 from openslide.deepzoom import DeepZoomGenerator
 from Annotation import Annotation
 from Vertex import Vertex
+from matplotlib.path import Path
 
 def load_slide(path, save_thumbnail=False):
     """
@@ -59,7 +60,7 @@ def get_patches_from_slide(slide, tile_size=512, overlap=0, limit_bounds=False):
         x = 0
     return patches
 
-def load_annotation(csv_path):
+def read_annotation(csv_path):
     """
     Loads the coordinates of an annotation created with QuPath
     and stored in a csv file
@@ -68,15 +69,40 @@ def load_annotation(csv_path):
         csv_path (str): Path to csv file containing annotation
 
     Returns:
-        annotation (Annotation): Annotation object
+        vertex_list (Nx2 numpy array): Nx2 array containing all 
+                                       vertices in the annotaiton
     """
 
-    with open(csv_path) as f:
-        reader = csv.reader(f)
-        vertex_list = []
-        for row in reader:
-            x = row[0]
-            y = row[1]
-            vertex_list.append(Vertex(x, y))
+    f = open(csv_path)
+    reader = csv.reader(f)
+    row_count = sum(1 for line in reader)
+    vertex_list = np.zeros((row_count, 2))
+    f.close()   
 
-    return Annotation(vertex_list)
+    f = open(csv_path)
+    reader = csv.reader(f)
+    current_row = 0
+    for row in reader:
+        vertex_list[current_row,] = row
+        current_row += 1
+
+    return vertex_list
+
+def construct_polygon(vertices):
+    """
+    Constructs a matplotlib Path object that represents the polygon
+    with provided vertices
+
+    Args:
+        vertices (Nx2 numpy array): vertices of our polygon
+
+    Returns:
+        polygon (Path object): Path object representing our polygon
+    
+    """
+    
+    return Path(vertices)
+    
+
+
+
