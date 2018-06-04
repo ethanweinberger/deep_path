@@ -6,6 +6,7 @@ import csv
 from openslide.deepzoom import DeepZoomGenerator
 from matplotlib.path import Path
 from patch import Patch
+import augmentation
 
 def load_slide(path, save_thumbnail=False):
     """
@@ -52,9 +53,9 @@ def get_patches_from_slide(slide, tile_size=512, overlap=0, limit_bounds=False):
             new_patch_img = np.array(tiles.get_tile(level, (x,y)), dtype=np.uint8)
             new_patch_coords = tiles.get_tile_coordinates(level, (x,y))
             if np.shape(new_patch_img) == (tile_size, tile_size, 3):
-                patches.append(Patch(new_patch_img, new_patch_coords))
+                new_patch = Patch(new_patch_img, new_patch_coords)
+                patches.append(new_patch)
                 count += 1
-
             x += 1
         y += 1
         x = 0

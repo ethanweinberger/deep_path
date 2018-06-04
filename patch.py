@@ -27,18 +27,18 @@ class Patch(object):
         """
 
         self.img = img
-        
+        self.coords = coords
         self.top_left_vertex = coords[0]
         top_left_x = self.top_left_vertex[0]
         top_left_y = self.top_left_vertex[1]
 
         patch_dimensions = coords[2]
-        patch_width = patch_dimensions[0]
-        patch_height = patch_dimensions[1]
+        self.width = patch_dimensions[0]
+        self.height = patch_dimensions[1]
 
-        self.top_right_vertex = (top_left_x + patch_width, top_left_y)
-        self.bottom_left_vertex = (top_left_x, top_left_y + patch_height)
-        self.bottom_right_vertex = (top_left_x + patch_width, top_left_y + patch_height)
+        self.top_right_vertex = (top_left_x + self.width, top_left_y)
+        self.bottom_left_vertex = (top_left_x, top_left_y + self.height)
+        self.bottom_right_vertex = (top_left_x + self.width, top_left_y + self.height)
 
     def vertex_in_annotation(self, patch_vertex, annotation):
         """
@@ -70,6 +70,4 @@ class Patch(object):
         else:
             raise TypeError("Invalid vertex type provided to vertex_in_annotation")
 
-        return in_annotaiton
-
-
+        return in_annotation
