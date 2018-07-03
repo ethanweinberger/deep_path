@@ -62,7 +62,8 @@ def get_patches_from_slide(slide, tile_size=512, overlap=0, limit_bounds=False):
         x = 0
     return patches
 
-def construct_training_dataset(top_level_directory, file_extension="qptiff", output_location="/data/ethan/hne_patches/", in_annotations=False):
+def construct_training_dataset(top_level_directory, file_extension="qptiff", 
+        output_location="/data/ethan/hne_patches/", annotations_only=False):
     """
     Recursively searches for files of the given slide file format starting at
     the provided top level directory.  As slide files are found, they are broken
@@ -73,7 +74,7 @@ def construct_training_dataset(top_level_directory, file_extension="qptiff", out
                                       lie all of our files
         file_extension (String): File extension for slide files
         output_location (String): Folder in which output files will be saved
-        in_annotations (Boolean): When true, only saves patches that have at least one corner within an annotation path
+        annotations_only (Boolean): When true, only saves patches that have at least one corner within an annotation path
     Returns:
         None (Patches saved to disk)
     """
@@ -87,11 +88,15 @@ def construct_training_dataset(top_level_directory, file_extension="qptiff", out
                 full_path = os.path.join(root, filename)
                 slide_name = os.path.basename(full_path)
                 slide = load_slide(full_path)
+                path_list = construct_annotation_path_list(slide_name)
+
                 patches = get_patches_from_slide(slide)
                 counter = 0
+
                 for patch in patches:
-                    patch.save_img_to_disk(output_location + slide_name + "_" + str(counter))
-                    counter += 1
+                    if (annotations_only and patch_in_paths(patch, path_list)) or not annotations_only: 
+                        patch.save_img_to_disk(output_location + slide_name + "_" + str(counter))
+                        counter += 1
                 
 def construct_annotation_path_list(slide_name, annotation_base_path="/data/ethan/Breast_Deep_Learning/annotation_csv_files/"):
     """
@@ -161,7 +166,7 @@ def construct_annotation_path(vertices):
     polygon = Path(vertices) 
     return polygon
 
-def check_if_patch_in_paths(patch, path_list):
+def patch_in_paths(patch, path_list):
     """
     Utility function to check if a given patch object is contained within
     any of the annotation paths in path_list
@@ -173,4 +178,9 @@ def check_if_patch_in_paths(patch, path_list):
         in_path (Boolean): True if patch contained within one of the paths in path_list
     """
 
+    in_path = False
+    for path in path_list:
+        if patch.in_annotation(path):
+            in_path = True
 
+    return in_path

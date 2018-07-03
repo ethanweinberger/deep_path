@@ -86,4 +86,24 @@ class Patch(object):
 
         return in_annotation
 
-    def patch_in_annotation(self, annotation):
+    def in_annotation(self, annotation):
+        """
+        Checks to see if ANY of the patch's vertices are contained within a given annotation
+        as given by a Path object
+
+        Args:
+            annotation (Path): Path object representing a given annotation
+        Returns:
+            in_annotation (Boolean): True if patch contained within annotation
+        """
+
+        in_annotation = False
+
+        if annotation.contains_point(self.top_left_vertex) or
+           annotation.contains_point(self.top_right_vertex) or
+           annotation.contains_point(self.bottom_left_vertex) or
+           annotation.contains_point(self.bottom_right_vertex):
+            in_annotation = True
+
+        return in_annotation
+            
