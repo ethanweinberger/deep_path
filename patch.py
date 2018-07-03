@@ -1,6 +1,7 @@
 # Class for slide patches
 
 from enum import Enum
+from PIL import Image
 from matplotlib.path import Path
 
 class Patch(object):
@@ -40,9 +41,22 @@ class Patch(object):
         self.bottom_left_vertex = (top_left_x, top_left_y + self.height)
         self.bottom_right_vertex = (top_left_x + self.width, top_left_y + self.height)
 
+    def save_img_to_disk(self, outfile_name):
+        """
+        Saves patch object's image contents to disk as a png file with name outfile_name
+
+        Args:
+            outfile_name (String): Name for resulting png file
+        Returns:
+            None (saves output to disk)
+        """
+
+        pil_img = Image.fromarray(self.img)
+        pil_img.save(outfile_name + '.png')
+
     def vertex_in_annotation(self, patch_vertex, annotation):
         """
-        Checks to see if a given patch vertex is contained within a provided
+        Checks to see if a specific patch vertex is contained within a provided
         annotation
 
         Args:
@@ -71,3 +85,5 @@ class Patch(object):
             raise TypeError("Invalid vertex type provided to vertex_in_annotation")
 
         return in_annotation
+
+    def patch_in_annotation(self, annotation):

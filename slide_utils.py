@@ -7,6 +7,7 @@ from openslide.deepzoom import DeepZoomGenerator
 from matplotlib.path import Path
 from patch import Patch
 import augmentation
+import os
 
 def load_slide(path, save_thumbnail=False):
     """
@@ -61,6 +62,62 @@ def get_patches_from_slide(slide, tile_size=512, overlap=0, limit_bounds=False):
         x = 0
     return patches
 
+def construct_training_dataset(top_level_directory, file_extension="qptiff", output_location="/data/ethan/hne_patches/", in_annotations=False):
+    """
+    Recursively searches for files of the given slide file format starting at
+    the provided top level directory.  As slide files are found, they are broken
+    up into nonoverlapping patches that can be used to train our model
+
+    Args:
+        top_level_directory (String): Location of the top-level directory, within which
+                                      lie all of our files
+        file_extension (String): File extension for slide files
+        output_location (String): Folder in which output files will be saved
+        in_annotations (Boolean): When true, only saves patches that have at least one corner within an annotation path
+    Returns:
+        None (Patches saved to disk)
+    """
+
+    if not os.path.exists(output_location):
+        os.makedirs(output_location)
+
+    for root, dirnames, filenames in os.walk(top_level_directory):
+        for filename in filenames:
+            if filename.endswith(file_extension):
+                full_path = os.path.join(root, filename)
+                slide_name = os.path.basename(full_path)
+                slide = load_slide(full_path)
+                patches = get_patches_from_slide(slide)
+                counter = 0
+                for patch in patches:
+                    patch.save_img_to_disk(output_location + slide_name + "_" + str(counter))
+                    counter += 1
+                
+def construct_annotation_path_list(slide_name, annotation_base_path="/data/ethan/Breast_Deep_Learning/annotation_csv_files/"):
+    """
+    Given the name of a slide, returns a list of polygons representing the annotations
+    drawn on that slide.
+
+    Args:
+        slide_name (String): Name of scanned slide
+        annotation_base_path (String): Path to top level directory containing slide annotations
+    Returns:
+        path_list (Path list): List of Path objects representing the annotations on the given slide
+    """
+
+    #TODO: Can I get rid of the _Scan1 somehow?
+    full_annotation_dir = annotation_base_path + slide_name + "_Scan1/"
+    annotation_list = []
+    
+    for filename in os.listdir(full_annotation_dir):
+        if filename.endswith(".csv"):
+            annotation_file = full_annotation_dir + filename 
+            current_annotation = read_annotation(annotation_file)
+            annotation_list.append(current_annotation)
+    
+    path_list = list(map(construct_annotation_path, annotation_list))
+    return path_list
+    
 def read_annotation(csv_path):
     """
     Loads the coordinates of an annotation created with QuPath
@@ -89,7 +146,7 @@ def read_annotation(csv_path):
 
     return vertex_list
 
-def construct_polygon(vertices):
+def construct_annotation_path(vertices):
     """
     Constructs a matplotlib Path object that represents the polygon
     with provided vertices
@@ -98,8 +155,22 @@ def construct_polygon(vertices):
         vertices (Nx2 numpy array): vertices of our polygon
 
     Returns:
-        polygon (Path object): Path object representing our polygon
+        path (Path object): Path object representing our polygon
     
     """
     polygon = Path(vertices) 
     return polygon
+
+def check_if_patch_in_paths(patch, path_list):
+    """
+    Utility function to check if a given patch object is contained within
+    any of the annotation paths in path_list
+
+    Args:
+        patch (Patch): Patch object that we want to check
+        path_list (Path list): List of annotation paths for a slide
+    Returns:
+        in_path (Boolean): True if patch contained within one of the paths in path_list
+    """
+
+
