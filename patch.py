@@ -52,7 +52,7 @@ class Patch(object):
         """
 
         pil_img = Image.fromarray(self.img)
-        pil_img.save(outfile_name + '.png')
+        pil_img.save(outfile_name + '.jpg')
 
     def vertex_in_annotation(self, patch_vertex, annotation):
         """
@@ -99,11 +99,20 @@ class Patch(object):
 
         in_annotation = False
 
-        if annotation.contains_point(self.top_left_vertex) or
-           annotation.contains_point(self.top_right_vertex) or
-           annotation.contains_point(self.bottom_left_vertex) or
-           annotation.contains_point(self.bottom_right_vertex):
-            in_annotation = True
+        #if (annotation.contains_point(self.top_left_vertex) or
+        #   annotation.contains_point(self.top_right_vertex) or
+        #   annotation.contains_point(self.bottom_left_vertex) or
+        #   annotation.contains_point(self.bottom_right_vertex)):
+        #    in_annotation = True
+        one_vertex_in = (annotation.contains_point(self.top_left_vertex) or
+                annotation.contains_point(self.top_right_vertex) or
+                annotation.contains_point(self.bottom_left_vertex) or
+                annotation.contains_point(self.bottom_right_vertex))
+        one_vertex_out = (not annotation.contains_point(self.top_left_vertex) or
+            not annotation.contains_point(self.top_right_vertex) or
+            not annotation.contains_point(self.bottom_left_vertex) or
+            not annotation.contains_point(self.bottom_right_vertex))
 
-        return in_annotation
+        #return in_annotation
+        return (one_vertex_in and one_vertex_out)
             

@@ -1,5 +1,7 @@
 import numpy as np
+import pandas as pd
 from PIL import Image
+import shutil
 
 import openslide
 import csv
@@ -8,6 +10,7 @@ from matplotlib.path import Path
 from patch import Patch
 import augmentation
 import os
+import sys
 
 def load_slide(path, save_thumbnail=False):
     """
@@ -62,8 +65,11 @@ def get_patches_from_slide(slide, tile_size=512, overlap=0, limit_bounds=False):
         x = 0
     return patches
 
-def construct_training_dataset(top_level_directory, file_extension="qptiff", 
-        output_location="/data/ethan/hne_patches/", annotations_only=False):
+def construct_training_dataset(top_level_directory="/data/ethan/Breast_Deep_Learning/Polaris/263/", 
+        file_extension="qptiff", 
+        output_dir="/data/ethan/hne_patches_large/",
+        label_file="/data/ethan/Breast_Deep_Learning/labels.csv", 
+        annotations_only=True):
     """
     Recursively searches for files of the given slide file format starting at
     the provided top level directory.  As slide files are found, they are broken
@@ -73,20 +79,45 @@ def construct_training_dataset(top_level_directory, file_extension="qptiff",
         top_level_directory (String): Location of the top-level directory, within which
                                       lie all of our files
         file_extension (String): File extension for slide files
-        output_location (String): Folder in which output files will be saved
+        output_dir (String): Folder in which output files will be saved
+        label_file (String): CSV file containing the true labels for each slide
         annotations_only (Boolean): When true, only saves patches that have at least one corner within an annotation path
     Returns:
         None (Patches saved to disk)
     """
+    
 
-    if not os.path.exists(output_location):
-        os.makedirs(output_location)
+    her2_pos_folder = output_dir + "her2_pos/"
+    her2_neg_folder = output_dir + "her2_neg/"
+
+    if os.path.exists(output_dir):
+        shutil.rmtree(output_dir)
+
+    os.makedirs(output_dir)
+    os.makedirs(her2_pos_folder)
+    os.makedirs(her2_neg_folder)
+
+    df = pd.read_csv(label_file)
 
     for root, dirnames, filenames in os.walk(top_level_directory):
         for filename in filenames:
             if filename.endswith(file_extension):
                 full_path = os.path.join(root, filename)
-                slide_name = os.path.basename(full_path)
+                slide_name = os.path.splitext(os.path.basename(full_path))[0].split("_")[0]
+                print("Splitting " + slide_name)
+                slide_label_row = df.loc[df.specnum_formatted == slide_name]
+
+                if slide_label_row.empty:
+                    continue
+                
+                slide_label = slide_label_row.iloc[0].her2_ihc
+                if slide_label == 0.0 or slide_label == 1.0:
+                    class_folder = her2_neg_folder
+                elif slide_label == 2.0 or slide_label == 3.0:
+                    class_folder = her2_pos_folder
+                else:
+                    continue #In case we have an empty or malformed cell
+
                 slide = load_slide(full_path)
                 path_list = construct_annotation_path_list(slide_name)
 
@@ -95,8 +126,9 @@ def construct_training_dataset(top_level_directory, file_extension="qptiff",
 
                 for patch in patches:
                     if (annotations_only and patch_in_paths(patch, path_list)) or not annotations_only: 
-                        patch.save_img_to_disk(output_location + slide_name + "_" + str(counter))
+                        patch.save_img_to_disk(class_folder + slide_name + "_" + str(counter))
                         counter += 1
+                print("Total patches for " + slide_name + ": " + str(counter))
                 
 def construct_annotation_path_list(slide_name, annotation_base_path="/data/ethan/Breast_Deep_Learning/annotation_csv_files/"):
     """
@@ -111,12 +143,12 @@ def construct_annotation_path_list(slide_name, annotation_base_path="/data/ethan
     """
 
     #TODO: Can I get rid of the _Scan1 somehow?
-    full_annotation_dir = annotation_base_path + slide_name + "_Scan1/"
+    full_annotation_dir = annotation_base_path + slide_name + "_Scan1"
     annotation_list = []
     
     for filename in os.listdir(full_annotation_dir):
         if filename.endswith(".csv"):
-            annotation_file = full_annotation_dir + filename 
+            annotation_file = full_annotation_dir + "/" + filename 
             current_annotation = read_annotation(annotation_file)
             annotation_list.append(current_annotation)
     
