@@ -31,7 +31,7 @@ def load_slide(path, save_thumbnail=False):
         im.save('test.jpg')
     return osr
 
-def get_patches_from_slide(slide, tile_size=512, overlap=0, limit_bounds=False):
+def get_patches_from_slide(slide, tile_size=1024, overlap=0, limit_bounds=False):
     """ 
     Splits an OpenSlide object into nonoverlapping patches
 
@@ -67,7 +67,7 @@ def get_patches_from_slide(slide, tile_size=512, overlap=0, limit_bounds=False):
 
 def construct_training_dataset(top_level_directory="/data/ethan/Breast_Deep_Learning/Polaris/263/", 
         file_extension="qptiff", 
-        output_dir="/data/ethan/hne_patches_large/",
+        output_dir="/data/ethan/hne_patches_tumor_only/",
         label_file="/data/ethan/Breast_Deep_Learning/labels.csv", 
         annotations_only=True):
     """
@@ -79,7 +79,7 @@ def construct_training_dataset(top_level_directory="/data/ethan/Breast_Deep_Lear
         top_level_directory (String): Location of the top-level directory, within which
                                       lie all of our files
         file_extension (String): File extension for slide files
-        output_dir (String): Folder in which output files will be saved
+        output_dir (String): Folder in which patch files will be saved
         label_file (String): CSV file containing the true labels for each slide
         annotations_only (Boolean): When true, only saves patches that have at least one corner within an annotation path
     Returns:
@@ -87,8 +87,8 @@ def construct_training_dataset(top_level_directory="/data/ethan/Breast_Deep_Lear
     """
     
 
-    her2_pos_folder = output_dir + "her2_pos/"
-    her2_neg_folder = output_dir + "her2_neg/"
+    her2_pos_folder = os.path.join(output_dir, "her2_pos")
+    her2_neg_folder = os.path.join(output_dir, "her2_neg")
 
     if os.path.exists(output_dir):
         shutil.rmtree(output_dir)
@@ -104,6 +104,7 @@ def construct_training_dataset(top_level_directory="/data/ethan/Breast_Deep_Lear
             if filename.endswith(file_extension):
                 full_path = os.path.join(root, filename)
                 slide_name = os.path.splitext(os.path.basename(full_path))[0].split("_")[0]
+
                 print("Splitting " + slide_name)
                 slide_label_row = df.loc[df.specnum_formatted == slide_name]
 
@@ -118,6 +119,8 @@ def construct_training_dataset(top_level_directory="/data/ethan/Breast_Deep_Lear
                 else:
                     continue #In case we have an empty or malformed cell
 
+                slide_dir = os.path.join(class_folder, slide_name)
+                os.makedirs(slide_dir)
                 slide = load_slide(full_path)
                 path_list = construct_annotation_path_list(slide_name)
 
@@ -126,7 +129,7 @@ def construct_training_dataset(top_level_directory="/data/ethan/Breast_Deep_Lear
 
                 for patch in patches:
                     if (annotations_only and patch_in_paths(patch, path_list)) or not annotations_only: 
-                        patch.save_img_to_disk(class_folder + slide_name + "_" + str(counter))
+                        patch.save_img_to_disk(slide_dir + "/" + slide_name + "_" + str(counter))
                         counter += 1
                 print("Total patches for " + slide_name + ": " + str(counter))
                 

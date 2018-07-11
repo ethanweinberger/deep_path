@@ -85,8 +85,29 @@ class Patch(object):
             raise TypeError("Invalid vertex type provided to vertex_in_annotation")
 
         return in_annotation
-
+    
     def in_annotation(self, annotation):
+        """
+        Checks to see if ALL of the patch's vertices are contained within a given annotation
+        as given by a path object
+        
+        Args:
+            annotation (Path): Path object representing a given annotation
+        Returns:
+            in_annotation (Boolean): True if patch contained within annotation
+        """
+        
+        in_annotation = False 
+        if (annotation.contains_point(self.top_left_vertex) and
+           annotation.contains_point(self.top_right_vertex) and
+           annotation.contains_point(self.bottom_left_vertex) and
+           annotation.contains_point(self.bottom_right_vertex)):
+            in_annotation = True
+
+        return in_annotation
+        
+
+    def on_annotation_boundary(self, annotation):
         """
         Checks to see if ANY of the patch's vertices are contained within a given annotation
         as given by a Path object
@@ -94,16 +115,8 @@ class Patch(object):
         Args:
             annotation (Path): Path object representing a given annotation
         Returns:
-            in_annotation (Boolean): True if patch contained within annotation
+            on_annotation_boundary (Boolean): True if patch lies on annotation boundary
         """
-
-        in_annotation = False
-
-        #if (annotation.contains_point(self.top_left_vertex) or
-        #   annotation.contains_point(self.top_right_vertex) or
-        #   annotation.contains_point(self.bottom_left_vertex) or
-        #   annotation.contains_point(self.bottom_right_vertex)):
-        #    in_annotation = True
         one_vertex_in = (annotation.contains_point(self.top_left_vertex) or
                 annotation.contains_point(self.top_right_vertex) or
                 annotation.contains_point(self.bottom_left_vertex) or
@@ -113,6 +126,7 @@ class Patch(object):
             not annotation.contains_point(self.bottom_left_vertex) or
             not annotation.contains_point(self.bottom_right_vertex))
 
-        #return in_annotation
-        return (one_vertex_in and one_vertex_out)
+        on_annotation_boundary = one_vertex_in and one_vertex_out
+
+        return on_annotation_boundary
             

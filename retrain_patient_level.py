@@ -127,6 +127,7 @@ import os.path
 import random
 import re
 import sys
+import pickle
 
 import numpy as np
 import tensorflow as tf
@@ -166,44 +167,49 @@ def create_image_lists(image_dir, testing_percentage, validation_percentage):
     tf.logging.error("Image directory '" + image_dir + "' not found.")
     return None
   result = collections.OrderedDict()
-  sub_dirs = sorted(x[0] for x in tf.gfile.Walk(image_dir))
+
+  class_dirs = []
+  slide_dirs = []
+  testing_slides = []
+  for root,dirs,files in os.walk(image_dir):
+    if dirs:
+      class_dirs.append(root)
+    else:
+      slide_dirs.append(root)
   # The root directory comes first, so skip it.
   is_root_dir = True
-  for sub_dir in sub_dirs:
+  for class_dir in class_dirs:
     if is_root_dir:
       is_root_dir = False
       continue
     extensions = ['jpg', 'jpeg', 'JPG', 'JPEG']
-    file_list = []
-    dir_name = os.path.basename(sub_dir)
+    slide_list = []
+    dir_name = os.path.basename(class_dir)
+
     if dir_name == image_dir:
       continue
-    tf.logging.info("Looking for images in '" + dir_name + "'")
-    for extension in extensions:
-      file_glob = os.path.join(image_dir, dir_name, '*.' + extension)
-      file_list.extend(tf.gfile.Glob(file_glob))
-    if not file_list:
-      tf.logging.warning('No files found')
+
+    tf.logging.info("Looking for folders in '" + dir_name + "'")
+    file_glob = os.path.join(image_dir, dir_name, '*')
+    slide_list.extend(tf.gfile.Glob(file_glob))
+
+    if not slide_list:
+      tf.logging.warning('No slide directories found')
       continue
-    if len(file_list) < 20:
-      tf.logging.warning(
-          'WARNING: Folder has less than 20 images, which may cause issues.')
-    elif len(file_list) > MAX_NUM_IMAGES_PER_CLASS:
-      tf.logging.warning(
-          'WARNING: Folder {} has more than {} images. Some images will '
-          'never be selected.'.format(dir_name, MAX_NUM_IMAGES_PER_CLASS))
+
     label_name = re.sub(r'[^a-z0-9]+', ' ', dir_name.lower())
     training_images = []
     testing_images = []
     validation_images = []
-    for file_name in file_list:
-      base_name = os.path.basename(file_name)
+
+    for slide_name in slide_list:
+      base_name = os.path.basename(slide_name)
       # We want to ignore anything after '_nohash_' in the file name when
       # deciding which set to put an image in, the data set creator has a way of
       # grouping photos that are close variations of each other. For example
       # this is used in the plant disease data set to group multiple pictures of
       # the same leaf.
-      hash_name = re.sub(r'_nohash_.*$', '', file_name)
+      hash_name = re.sub(r'_nohash_.*$', '', slide_name)
       # This looks a bit magical, but we need to decide whether this file should
       # go into the training, testing, or validation sets, and we want to keep
       # existing files in the same set even if more files are subsequently
@@ -216,11 +222,19 @@ def create_image_lists(image_dir, testing_percentage, validation_percentage):
                           (MAX_NUM_IMAGES_PER_CLASS + 1)) *
                          (100.0 / MAX_NUM_IMAGES_PER_CLASS))
       if percentage_hash < validation_percentage:
-        validation_images.append(base_name)
+        for image in os.listdir(os.path.join(image_dir, dir_name, slide_name)):
+          validation_images.append(image)
       elif percentage_hash < (testing_percentage + validation_percentage):
-        testing_images.append(base_name)
+        testing_slides.append(os.path.join(image_dir, dir_name, slide_name))
+        for image in os.listdir(os.path.join(image_dir, dir_name, slide_name)):
+          testing_images.append(image)
       else:
-        training_images.append(base_name)
+        for image in os.listdir(os.path.join(image_dir, dir_name, slide_name)):
+          training_images.append(image)
+      
+    with open("testing_slides", "wb") as fp:
+      pickle.dump(testing_slides, fp)    
+
     result[label_name] = {
         'dir': dir_name,
         'training': training_images,
@@ -354,6 +368,12 @@ def create_bottleneck_file(bottleneck_path, image_lists, label_name, index,
   tf.logging.info('Creating bottleneck at ' + bottleneck_path)
   image_path = get_image_path(image_lists, label_name, index,
                               image_dir, category)
+  
+  image_file_base = os.path.basename(image_path)
+  image_file_dir  = os.path.dirname(image_path)
+  slide_name = image_file_base.split('_')[0] 
+  image_path = os.path.join(image_file_dir, slide_name, image_file_base) 
+  
   if not tf.gfile.Exists(image_path):
     tf.logging.fatal('File does not exist %s', image_path)
   image_data = tf.gfile.FastGFile(image_path, 'rb').read()
@@ -576,6 +596,10 @@ def get_random_distorted_bottlenecks(
     image_index = random.randrange(MAX_NUM_IMAGES_PER_CLASS + 1)
     image_path = get_image_path(image_lists, label_name, image_index, image_dir,
                                 category)
+    image_file_base = os.path.basename(image_path)
+    image_file_dir  = os.path.dirname(image_path)
+    slide_name = image_file_base.split('_')[0] 
+    image_path = os.path.join(image_file_dir, slide_name, image_file_base) 
     if not tf.gfile.Exists(image_path):
       tf.logging.fatal('File does not exist %s', image_path)
     jpeg_data = tf.gfile.FastGFile(image_path, 'rb').read()
