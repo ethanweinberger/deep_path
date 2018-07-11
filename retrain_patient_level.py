@@ -146,7 +146,7 @@ FAKE_QUANT_OPS = ('FakeQuantWithMinMaxVars',
                   'FakeQuantWithMinMaxVarsPerChannel')
 
 
-def create_image_lists(image_dir, testing_percentage, validation_percentage):
+def create_image_lists(image_dir, testing_percentage):
   """Builds a list of training images from the file system.
 
   Analyzes the sub folders in the image directory, splits them into stable
@@ -156,7 +156,6 @@ def create_image_lists(image_dir, testing_percentage, validation_percentage):
   Args:
     image_dir: String path to a folder containing subfolders of images.
     testing_percentage: Integer percentage of the images to reserve for tests.
-    validation_percentage: Integer percentage of images reserved for validation.
 
   Returns:
     An OrderedDict containing an entry for each label subfolder, with images
@@ -200,7 +199,6 @@ def create_image_lists(image_dir, testing_percentage, validation_percentage):
     label_name = re.sub(r'[^a-z0-9]+', ' ', dir_name.lower())
     training_images = []
     testing_images = []
-    validation_images = []
 
     for slide_name in slide_list:
       base_name = os.path.basename(slide_name)
@@ -221,10 +219,7 @@ def create_image_lists(image_dir, testing_percentage, validation_percentage):
       percentage_hash = ((int(hash_name_hashed, 16) %
                           (MAX_NUM_IMAGES_PER_CLASS + 1)) *
                          (100.0 / MAX_NUM_IMAGES_PER_CLASS))
-      if percentage_hash < validation_percentage:
-        for image in os.listdir(os.path.join(image_dir, dir_name, slide_name)):
-          validation_images.append(image)
-      elif percentage_hash < (testing_percentage + validation_percentage):
+      if percentage_hash < (testing_percentage):
         testing_slides.append(os.path.join(image_dir, dir_name, slide_name))
         for image in os.listdir(os.path.join(image_dir, dir_name, slide_name)):
           testing_images.append(image)
@@ -239,9 +234,91 @@ def create_image_lists(image_dir, testing_percentage, validation_percentage):
         'dir': dir_name,
         'training': training_images,
         'testing': testing_images,
-        'validation': validation_images,
     }
   return result
+
+def create_image_lists_kfold(image_dir, num_folds=10):
+  """
+  Builds a list of lists of training images from the file system.  The number
+  of lists here will be equal to the num_folds, analogous to k-fold cross
+  validation
+
+  Args:
+    image_dir: String path to a folder containing subfolders of images.
+    num_folds (Int): Number of folds we want to split our data into
+
+  Returns:
+    An OrderedDict containing an entry for each label subfolder, with images
+    split into training, testing, and validation sets within each label.
+    The order of items defines the class indices.
+  """
+  if not tf.gfile.Exists(image_dir):
+    tf.logging.error("Image directory '" + image_dir + "' not found.")
+    return None
+  result_list = []
+  for i in range(num_folds):
+    result_list.append(collections.OrderedDict())
+
+  class_dirs = []
+  slide_dirs = []
+  testing_slides = []
+
+  for root,dirs,files in os.walk(image_dir):
+    if dirs:
+      class_dirs.append(root)
+    else:
+      slide_dirs.append(root)
+  # The root directory comes first, so skip it.
+  is_root_dir = True
+  for class_dir in class_dirs:
+    if is_root_dir:
+      is_root_dir = False
+      continue
+    extensions = ['jpg', 'jpeg', 'JPG', 'JPEG']
+    slide_list = []
+    dir_name = os.path.basename(class_dir)
+
+    if dir_name == image_dir:
+      continue
+
+    tf.logging.info("Looking for folders in '" + dir_name + "'")
+    file_glob = os.path.join(image_dir, dir_name, '*')
+    slide_list.extend(tf.gfile.Glob(file_glob))
+
+    if not slide_list:
+      tf.logging.warning('No slide directories found')
+      continue
+
+    label_name = re.sub(r'[^a-z0-9]+', ' ', dir_name.lower())
+    result = collections.OrderedDict()
+    
+    kf = KFold(n_splits=num_folds, shuffle=True)
+    current_fold = 0
+    for train, test in kf.split(slide_list):
+      training_slides = np.array(slide_list)[train]
+      testing_slides = np.array(slide_list)[test]    
+       
+      training_images = []
+      testing_images = []
+
+      for training_slide_name in training_slides:
+        for image in os.listdir(training_slide_name):
+          training_images.append(image)
+
+      for testing_slide_name in testing_slides:
+        for image in os.listdir(testing_slide_name):
+          testing_images.append(image) 
+      
+
+      result_list[current_fold][label_name] = {
+        'dir': dir_name,
+        'training': training_images,
+        'testing': testing_images,
+      }
+      current_fold += 1
+
+  print(len(result_list))
+  return result_list
 
 
 def get_image_path(image_lists, label_name, index, image_dir, category):
@@ -407,7 +484,7 @@ def get_or_create_bottleneck(sess, image_lists, label_name, index, image_dir,
     image_dir: Root folder string of the subfolders containing the training
     images.
     category: Name string of which set to pull images from - training, testing,
-    or validation.
+    or validation_list.
     bottleneck_dir: Folder string holding cached files of bottleneck values.
     jpeg_data_tensor: The tensor to feed loaded jpeg data into.
     decoded_image_tensor: The output of decoding and resizing the image.
@@ -480,7 +557,7 @@ def cache_bottlenecks(sess, image_lists, image_dir, bottleneck_dir,
   how_many_bottlenecks = 0
   ensure_dir_exists(bottleneck_dir)
   for label_name, label_lists in image_lists.items():
-    for category in ['training', 'testing', 'validation']:
+    for category in ['training', 'testing']:
       category_list = label_lists[category]
       for index, unused_base_name in enumerate(category_list):
         get_or_create_bottleneck(
@@ -740,7 +817,7 @@ def variable_summaries(var):
 
 
 def add_final_retrain_ops(class_count, final_tensor_name, bottleneck_tensor,
-                          quantize_layer, is_training):
+                          quantize_layer, FLAGS, is_training):
   """Adds a new softmax and fully-connected layer for training and eval.
 
   We need to retrain the top layer to identify our new classes, so this function
@@ -847,7 +924,7 @@ def add_evaluation_step(result_tensor, ground_truth_tensor):
 
 def run_final_eval(train_session, module_spec, class_count, image_lists,
                    jpeg_data_tensor, decoded_image_tensor,
-                   resized_image_tensor, bottleneck_tensor):
+                   resized_image_tensor, bottleneck_tensor, FLAGS):
   """Runs a final evaluation on an eval graph using the test data set.
 
   Args:
@@ -869,7 +946,7 @@ def run_final_eval(train_session, module_spec, class_count, image_lists,
                                     bottleneck_tensor, FLAGS.tfhub_module))
 
   (eval_session, _, bottleneck_input, ground_truth_input, evaluation_step,
-   prediction) = build_eval_session(module_spec, class_count)
+   prediction) = build_eval_session(module_spec, class_count, FLAGS)
   test_accuracy, predictions = eval_session.run(
       [evaluation_step, prediction],
       feed_dict={
@@ -887,7 +964,7 @@ def run_final_eval(train_session, module_spec, class_count, image_lists,
                                       list(image_lists.keys())[predictions[i]]))
 
 
-def build_eval_session(module_spec, class_count):
+def build_eval_session(module_spec, class_count, FLAGS):
   """Builds an restored eval session without train operations for exporting.
 
   Args:
@@ -908,7 +985,7 @@ def build_eval_session(module_spec, class_count):
     (_, _, bottleneck_input,
      ground_truth_input, final_tensor) = add_final_retrain_ops(
          class_count, FLAGS.final_tensor_name, bottleneck_tensor,
-         wants_quantization, is_training=False)
+         wants_quantization, FLAGS, is_training=False)
 
     # Now we need to restore the values from the training graph to the eval
     # graph.
@@ -921,9 +998,9 @@ def build_eval_session(module_spec, class_count):
           evaluation_step, prediction)
 
 
-def save_graph_to_file(graph, graph_file_name, module_spec, class_count):
+def save_graph_to_file(graph, graph_file_name, module_spec, class_count, FLAGS):
   """Saves an graph to file, creating a valid quantized one if necessary."""
-  sess, _, _, _, _, _ = build_eval_session(module_spec, class_count)
+  sess, _, _, _, _, _ = build_eval_session(module_spec, class_count, FLAGS)
   graph = sess.graph
 
   output_graph_def = tf.graph_util.convert_variables_to_constants(
@@ -933,7 +1010,7 @@ def save_graph_to_file(graph, graph_file_name, module_spec, class_count):
     f.write(output_graph_def.SerializeToString())
 
 
-def prepare_file_system():
+def prepare_file_system(FLAGS):
   # Setup the directory we'll write summaries to for TensorBoard
   if tf.gfile.Exists(FLAGS.summaries_dir):
     tf.gfile.DeleteRecursively(FLAGS.summaries_dir)
@@ -977,7 +1054,7 @@ def export_model(module_spec, class_count, saved_model_dir):
     saved_model_dir: Directory in which to save exported model and variables.
   """
   # The SavedModel should hold the eval graph.
-  sess, in_image, _, _, _, _ = build_eval_session(module_spec, class_count)
+  sess, in_image, _, _, _, _ = build_eval_session(module_spec, class_count, FLAGS)
   graph = sess.graph
   with graph.as_default():
     inputs = {'image': tf.saved_model.utils.build_tensor_info(in_image)}
@@ -1017,11 +1094,11 @@ def main(_):
     return -1
 
   # Prepare necessary directories that can be used during training
-  prepare_file_system()
+  prepare_file_system(FLAGS)
 
   # Look at the folder structure, and create lists of all the images.
-  image_lists = create_image_lists(FLAGS.image_dir, FLAGS.testing_percentage,
-                                   FLAGS.validation_percentage)
+  image_lists_folds = create_image_lists(FLAGS.image_dir, FLAGS.testing_percentage)
+
   class_count = len(image_lists.keys())
   if class_count == 0:
     tf.logging.error('No valid folders of images found at ' + FLAGS.image_dir)
@@ -1047,7 +1124,7 @@ def main(_):
     (train_step, cross_entropy, bottleneck_input,
      ground_truth_input, final_tensor) = add_final_retrain_ops(
          class_count, FLAGS.final_tensor_name, bottleneck_tensor,
-         wants_quantization, is_training=True)
+         wants_quantization, FLAGS, is_training=True)
 
   with tf.Session(graph=graph) as sess:
     # Initialize all weights: for the module to their pretrained values,
@@ -1079,9 +1156,6 @@ def main(_):
     merged = tf.summary.merge_all()
     train_writer = tf.summary.FileWriter(FLAGS.summaries_dir + '/train',
                                          sess.graph)
-
-    validation_writer = tf.summary.FileWriter(
-        FLAGS.summaries_dir + '/validation')
 
     # Create a train saver that is used to restore values into an eval graph
     # when exporting models.
@@ -1123,25 +1197,6 @@ def main(_):
                         (datetime.now(), i, train_accuracy * 100))
         tf.logging.info('%s: Step %d: Cross entropy = %f' %
                         (datetime.now(), i, cross_entropy_value))
-        # TODO: Make this use an eval graph, to avoid quantization
-        # moving averages being updated by the validation set, though in
-        # practice this makes a negligable difference.
-        validation_bottlenecks, validation_ground_truth, _ = (
-            get_random_cached_bottlenecks(
-                sess, image_lists, FLAGS.validation_batch_size, 'validation',
-                FLAGS.bottleneck_dir, FLAGS.image_dir, jpeg_data_tensor,
-                decoded_image_tensor, resized_image_tensor, bottleneck_tensor,
-                FLAGS.tfhub_module))
-        # Run a validation step and capture training summaries for TensorBoard
-        # with the `merged` op.
-        validation_summary, validation_accuracy = sess.run(
-            [merged, evaluation_step],
-            feed_dict={bottleneck_input: validation_bottlenecks,
-                       ground_truth_input: validation_ground_truth})
-        validation_writer.add_summary(validation_summary, i)
-        tf.logging.info('%s: Step %d: Validation accuracy = %.1f%% (N=%d)' %
-                        (datetime.now(), i, validation_accuracy * 100,
-                         len(validation_bottlenecks)))
 
       # Store intermediate results
       intermediate_frequency = FLAGS.intermediate_store_frequency
@@ -1156,7 +1211,7 @@ def main(_):
         tf.logging.info('Save intermediate result to : ' +
                         intermediate_file_name)
         save_graph_to_file(graph, intermediate_file_name, module_spec,
-                           class_count)
+                           class_count, FLAGS)
 
     # After training is complete, force one last save of the train checkpoint.
     train_saver.save(sess, CHECKPOINT_NAME)
@@ -1165,20 +1220,19 @@ def main(_):
     # some new images we haven't used before.
     run_final_eval(sess, module_spec, class_count, image_lists,
                    jpeg_data_tensor, decoded_image_tensor, resized_image_tensor,
-                   bottleneck_tensor)
+                   bottleneck_tensor, FLAGS)
 
     # Write out the trained graph and labels with the weights stored as
     # constants.
     tf.logging.info('Save final result to : ' + FLAGS.output_graph)
     if wants_quantization:
       tf.logging.info('The model is instrumented for quantization with TF-Lite')
-    save_graph_to_file(graph, FLAGS.output_graph, module_spec, class_count)
+    save_graph_to_file(graph, FLAGS.output_graph, module_spec, class_count, FLAGS)
     with tf.gfile.FastGFile(FLAGS.output_labels, 'w') as f:
       f.write('\n'.join(image_lists.keys()) + '\n')
 
     if FLAGS.saved_model_dir:
       export_model(module_spec, class_count, FLAGS.saved_model_dir)
-
 
 if __name__ == '__main__':
   parser = argparse.ArgumentParser()
@@ -1240,12 +1294,6 @@ if __name__ == '__main__':
       help='What percentage of images to use as a test set.'
   )
   parser.add_argument(
-      '--validation_percentage',
-      type=int,
-      default=10,
-      help='What percentage of images to use as a validation set.'
-  )
-  parser.add_argument(
       '--eval_step_interval',
       type=int,
       default=10,
@@ -1266,19 +1314,6 @@ if __name__ == '__main__':
       the final accuracy of the model after training completes.
       A value of -1 causes the entire test set to be used, which leads to more
       stable results across runs.\
-      """
-  )
-  parser.add_argument(
-      '--validation_batch_size',
-      type=int,
-      default=100,
-      help="""\
-      How many images to use in an evaluation batch. This validation set is
-      used much more often than the test set, and is an early indicator of how
-      accurate the model is during training.
-      A value of -1 causes the entire validation set to be used, which leads to
-      more stable results across training iterations, but may be slower on large
-      training sets.\
       """
   )
   parser.add_argument(

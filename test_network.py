@@ -38,7 +38,7 @@ def read_tensor_from_image_file(file_name,
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model_file", help="model file to load", default="output_graph.pb")
+    parser.add_argument("--model_file", help="model file to load", default="/tmp/output_graph.pb")
     parser.add_argument("--image_folder", help="folder containing image patches", default="/data/ethan/hne_patches_tumor_only/")
     parser.add_argument("--input_layer", help="name of input layer", default="Placeholder")
     parser.add_argument("--output_layer", help="name of output layer", default="final_result")
