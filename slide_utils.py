@@ -31,7 +31,7 @@ def load_slide(path, save_thumbnail=False):
         im.save('test.jpg')
     return osr
 
-def get_patches_from_slide(slide, tile_size=1024, overlap=0, limit_bounds=False):
+def get_patches_from_slide(slide, tile_size=512, overlap=0, limit_bounds=False):
     """ 
     Splits an OpenSlide object into nonoverlapping patches
 
@@ -67,7 +67,7 @@ def get_patches_from_slide(slide, tile_size=1024, overlap=0, limit_bounds=False)
 
 def construct_training_dataset(top_level_directory="/data/ethan/Breast_Deep_Learning/Polaris/263/", 
         file_extension="qptiff", 
-        output_dir="/data/ethan/hne_patches_tumor_only/",
+        output_dir="/data/ethan/hne_patches_tumor_stroma_interface/",
         label_file="/data/ethan/Breast_Deep_Learning/labels.csv", 
         annotations_only=True):
     """
@@ -215,7 +215,7 @@ def patch_in_paths(patch, path_list):
 
     in_path = False
     for path in path_list:
-        if patch.in_annotation(path):
+        if patch.on_annotation_boundary(path):
             in_path = True
 
     return in_path

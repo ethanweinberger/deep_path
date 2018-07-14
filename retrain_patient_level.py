@@ -953,7 +953,7 @@ def run_final_eval(train_session, module_spec, class_count, image_lists,
           bottleneck_input: test_bottlenecks,
           ground_truth_input: test_ground_truth
       })
-  tf.logging.info('Final test accuracy = %.1f%% (N=%d)' %
+  print('Final test accuracy = %.1f%% (N=%d)' %
                   (test_accuracy * 100, len(test_bottlenecks)))
 
   if FLAGS.print_misclassified_test_images:
@@ -1097,7 +1097,7 @@ def main(_):
   prepare_file_system(FLAGS)
 
   # Look at the folder structure, and create lists of all the images.
-  image_lists_folds = create_image_lists(FLAGS.image_dir, FLAGS.testing_percentage)
+  image_lists = create_image_lists(FLAGS.image_dir, FLAGS.testing_percentage)
 
   class_count = len(image_lists.keys())
   if class_count == 0:

@@ -8,6 +8,7 @@ import tensorflow_hub as hub
 import collections
 
 from retrain_patient_level import add_jpeg_decoding
+from retrain_patient_level import add_input_distortions
 from retrain_patient_level import add_evaluation_step
 from retrain_patient_level import prepare_file_system
 from retrain_patient_level import should_distort_images
@@ -15,6 +16,7 @@ from retrain_patient_level import create_module_graph
 from retrain_patient_level import add_final_retrain_ops 
 from retrain_patient_level import cache_bottlenecks
 from retrain_patient_level import get_random_cached_bottlenecks 
+from retrain_patient_level import get_random_distorted_bottlenecks
 from retrain_patient_level import run_final_eval
 from retrain_patient_level import save_graph_to_file
 from sklearn.model_selection import KFold
@@ -31,7 +33,7 @@ CHECKPOINT_NAME = '/tmp/_retrain_checkpoint'
 FAKE_QUANT_OPS = ('FakeQuantWithMinMaxVars',
                   'FakeQuantWithMinMaxVarsPerChannel')
 
-def create_image_lists_kfold(image_dir, num_folds=10):
+def create_image_lists_kfold(image_dir, num_folds=5):
   """
   Builds a list of lists of training images from the file system.  The number
   of lists here will be equal to the num_folds, analogous to k-fold cross
@@ -111,15 +113,12 @@ def create_image_lists_kfold(image_dir, num_folds=10):
       }
       current_fold += 1
 
-  print(len(result_list))
   return result_list
 
  
 def main(_):
   # Needed to make sure the logging output is visible.
   # See https://github.com/tensorflow/tensorflow/issues/3047
-  tf.logging.set_verbosity(tf.logging.INFO)
-  print(FLAGS)
 
   if not FLAGS.image_dir:
     tf.logging.error('Must set flag --image_dir.')
