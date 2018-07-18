@@ -8,15 +8,22 @@ import tensorflow as tf
 import pandas as pd
 import pickle
 import shutil
+import curses
 import matplotlib.pyplot as plt
 from sklearn.metrics import auc
 from scipy import interp
+from PIL import Image
+from PIL import ImageFont
+from PIL import ImageDraw
 
 from collections import namedtuple
 Vote_Container = namedtuple("Vote_Container", 
         ["percent_pos_votes",
         "slide_name",
         "slide_category"])
+Confidence_Container = namedtuple("Confidence_Container",
+        ["patch_location",
+        "confidence"])
 
 def load_graph(model_file):
     graph = tf.Graph()
@@ -54,7 +61,8 @@ def classify_whole_slides(
         label_file, 
         input_layer, 
         output_layer,
-        histogram_folder):
+        histogram_folder,
+        patch_confidence_dir):
     """
     Runs all the patches for each test slide as specified in test_slide_list 
     through the trained network, and saves the percentage of patches
@@ -68,6 +76,7 @@ def classify_whole_slides(
         input_layer (String): Name of input layer in saved model file
         output_layer (String): Name of output layer in saved moddel file
         histogram_folder (String): Directory in which to save histogram plots
+        patch_confidence_dir (String): Directory in which to save patch confidences
     Returns:
         vote_container_list (Vote_Container list): List of Vote_Container
             objects containing the number of positive and negative votes
@@ -89,7 +98,13 @@ def classify_whole_slides(
     os.makedirs(pos_folder)
     os.makedirs(neg_folder)
 
+    if os.path.exists(patch_confidence_dir):
+        shutil.rmtree(patch_confidence_dir)
+
+    os.makedirs(patch_confidence_dir)
+
     vote_container_list = []
+    confidence_container_list = []
     
     with tf.Session(graph = graph) as sess:
         with open(test_slide_list, "rb") as fp:
@@ -140,6 +155,10 @@ def classify_whole_slides(
                 else:
                     num_pos_votes += 1
                 her2_plus_confidences.append(results[1])
+                conf_container = Confidence_Container(
+                        patch_location=os.path.join(test_slide, file_name),
+                        confidence=results[1])
+                confidence_container_list.append(conf_container)
 
             if slide_category == "pos":
                 pos_slide_confidence_lists.append(her2_plus_confidences)
@@ -171,6 +190,9 @@ def classify_whole_slides(
         draw_confidence_histograms(pos_slide_confidence_lists, histogram_folder, pos_slide_name_list, "pos")
         draw_confidence_histograms(neg_slide_confidence_lists, histogram_folder, neg_slide_name_list, "neg")
     
+    conf_container_list_filename = os.path.join(patch_confidence_dir, "confidences")
+    with open(conf_container_list_filename, "wb") as fp:
+        pickle.dump(confidence_container_list, fp)
     return vote_container_list
 
 def draw_confidence_histograms(confidence_lists, histogram_folder, slide_names, slide_category, num_graphs_per_row=3):
@@ -348,7 +370,67 @@ def draw_roc_curve_kfold(fold_vote_container_lists):
     plt.title('K-fold Receiver Operating Characteristic')
     plt.legend(loc="lower right")
     plt.savefig("k-fold_roc.png")
-    
+
+
+
+def visualize_confidence_containers(confidence_container_list_path):
+    """
+    Given the path to a list of confidence containers,
+    allows the user to visualize patches with their
+    associated confidences.
+
+    Args:
+        confidence_container_list_path (String): Path to confidence
+            container list pickle
+    Returns:
+        None (output is visual)
+    """
+
+    with open(confidence_container_list_path, "rb") as fp:
+        confidence_container_list = pickle.load(fp)
+
+        if len(confidence_container_list) == 0:
+            print("No containers found in confidence container list. Exitting visualization.")
+            return
+
+        index = 0 
+        current_container = confidence_container_list[index]
+        img = Image.open(current_container.patch_location)
+        confidence = current_container.confidence
+
+        def on_key(event):
+            nonlocal index
+            if event.key == 'left':
+                if index - 1 >= 0:
+                    index -= 1
+                    current_container = confidence_container_list[index]
+                    img = Image.open(current_container.patch_location)
+                    confidence = current_container.confidence
+
+                    plt.title("Confidence: " + str(confidence))
+                    plt.imshow(img)
+                    plt.draw()
+                else:
+                    print("Reached beginning of patches: Can't go back any further")
+            elif event.key == 'right':
+                if index + 1 <= len(confidence_container_list):
+                    index += 1
+                    current_container = confidence_container_list[index]
+                    img = Image.open(current_container.patch_location)
+                    confidence = current_container.confidence
+
+                    plt.title("Confidence: " + str(confidence))
+                    plt.imshow(img)
+                    plt.draw()
+                else:
+                    print("Reached end of patches: Can't go any farther forward")
+
+        fig, ax = plt.subplots()
+        cid = fig.canvas.mpl_connect('key_press_event', on_key)
+        plt.title("Confidence: " + str(confidence))
+        plt.imshow(img)
+        plt.show()
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--model_file_folder", help="model file to load", default="./output_graph_files")
@@ -357,6 +439,7 @@ if __name__ == "__main__":
     parser.add_argument("--label_file", help="label file to load", default="/data/ethan/Breast_Deep_Learning/labels.csv")
     parser.add_argument("--test_slide_folder", help="pickle containing list of test slides", default="./testing_slide_lists")
     parser.add_argument("--histogram_folder", help="folder to store patch confidence histograms", default="./histograms")
+    parser.add_argument("--patch_confidence_folder", help="folder to store patch confidence values", default="./patch_confidences")
     args = parser.parse_args()
     
     testing_slide_lists = os.listdir(args.test_slide_folder)
@@ -365,7 +448,7 @@ if __name__ == "__main__":
     testing_slide_lists.sort()
     model_files.sort()
 
-    
+    """ 
     fold_vote_container_lists = []
     i = 0
     for (testing_slide_list, model_file) in zip(testing_slide_lists, model_files):
@@ -376,9 +459,11 @@ if __name__ == "__main__":
             args.label_file,
             args.input_layer,
             args.output_layer,
-            args.histogram_folder+ "/fold_" + str(i))
+            args.histogram_folder + "/fold_" + str(i),
+            args.patch_confidence_folder + "/fold_" + str(i))
 
         fold_vote_container_lists.append(vote_container_list)
         i += 1
-    
     draw_roc_curve_kfold(fold_vote_container_lists) 
+    """
+    visualize_confidence_containers("./patch_confidences/fold_0/confidences")
