@@ -6,6 +6,7 @@ import sys
 import tensorflow as tf
 import tensorflow_hub as hub
 import collections
+import pickle
 
 from retrain_patient_level import add_jpeg_decoding
 from retrain_patient_level import add_input_distortions
@@ -20,6 +21,7 @@ from retrain_patient_level import get_random_distorted_bottlenecks
 from retrain_patient_level import run_final_eval
 from retrain_patient_level import save_graph_to_file
 from sklearn.model_selection import KFold
+from test_network import test_trained_network
 from datetime import datetime
 
 FLAGS = None
@@ -52,12 +54,13 @@ def create_image_lists_kfold(image_dir, num_folds=5):
     tf.logging.error("Image directory '" + image_dir + "' not found.")
     return None
   result_list = []
+  testing_slide_lists = []
   for i in range(num_folds):
     result_list.append(collections.OrderedDict())
+    testing_slide_lists.append([])
 
   class_dirs = []
   slide_dirs = []
-  testing_slides = []
 
   for root,dirs,files in os.walk(image_dir):
     if dirs:
@@ -90,10 +93,12 @@ def create_image_lists_kfold(image_dir, num_folds=5):
     
     kf = KFold(n_splits=num_folds, shuffle=True)
     current_fold = 0
+    testing_slides_base_names = []
     for train, test in kf.split(slide_list):
       training_slides = np.array(slide_list)[train]
       testing_slides = np.array(slide_list)[test]    
-       
+      testing_slide_lists[current_fold].extend(testing_slides)
+
       training_images = []
       testing_images = []
 
@@ -103,9 +108,8 @@ def create_image_lists_kfold(image_dir, num_folds=5):
 
       for testing_slide_name in testing_slides:
         for image in os.listdir(testing_slide_name):
-          testing_images.append(image) 
+          testing_images.append(image)  
       
-
       result_list[current_fold][label_name] = {
         'dir': dir_name,
         'training': training_images,
@@ -113,12 +117,17 @@ def create_image_lists_kfold(image_dir, num_folds=5):
       }
       current_fold += 1
 
+  for i in range(num_folds):
+    with open("../testing_slides_" + str(i), "wb") as fp:
+      pickle.dump(testing_slide_lists[i], fp)
+
   return result_list
 
  
 def main(_):
   # Needed to make sure the logging output is visible.
   # See https://github.com/tensorflow/tensorflow/issues/3047
+  tf.logging.set_verbosity(tf.logging.INFO)
 
   if not FLAGS.image_dir:
     tf.logging.error('Must set flag --image_dir.')
@@ -129,7 +138,7 @@ def main(_):
 
   # Look at the folder structure, and create lists of all the images.
   image_lists_folds = create_image_lists_kfold(FLAGS.image_dir)
-
+  network_count = 0
   for image_lists in image_lists_folds: 
 
     class_count = len(image_lists.keys())
@@ -250,22 +259,23 @@ def main(_):
       train_saver.save(sess, CHECKPOINT_NAME)
 
       # We've completed all our training, so run a final test evaluation on
-      # some new images we haven't used before.
+      # some new images we haven't used before.)
       run_final_eval(sess, module_spec, class_count, image_lists,
                      jpeg_data_tensor, decoded_image_tensor, resized_image_tensor,
                      bottleneck_tensor, FLAGS)
 
       # Write out the trained graph and labels with the weights stored as
       # constants.
-      tf.logging.info('Save final result to : ' + FLAGS.output_graph)
+      tf.logging.info('Save final result to : ' + FLAGS.output_graph + "_" + str(network_count))
       if wants_quantization:
         tf.logging.info('The model is instrumented for quantization with TF-Lite')
-      save_graph_to_file(graph, FLAGS.output_graph, module_spec, class_count, FLAGS)
+      save_graph_to_file(graph, FLAGS.output_graph + "_" + str(network_count), module_spec, class_count, FLAGS)
       with tf.gfile.FastGFile(FLAGS.output_labels, 'w') as f:
         f.write('\n'.join(image_lists.keys()) + '\n')
 
       if FLAGS.saved_model_dir:
         export_model(module_spec, class_count, FLAGS.saved_model_dir)
+    network_count += 1
 
 if __name__ == '__main__':
   parser = argparse.ArgumentParser()
@@ -311,7 +321,7 @@ if __name__ == '__main__':
   parser.add_argument(
       '--how_many_training_steps',
       type=int,
-      default=4000,
+      default=300,
       help='How many training steps to run before ending.'
   )
   parser.add_argument(
@@ -319,12 +329,6 @@ if __name__ == '__main__':
       type=float,
       default=0.01,
       help='How large a learning rate to use when training.'
-  )
-  parser.add_argument(
-      '--testing_percentage',
-      type=int,
-      default=10,
-      help='What percentage of images to use as a test set.'
   )
   parser.add_argument(
       '--eval_step_interval',

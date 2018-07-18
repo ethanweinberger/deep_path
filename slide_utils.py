@@ -31,7 +31,7 @@ def load_slide(path, save_thumbnail=False):
         im.save('test.jpg')
     return osr
 
-def get_patches_from_slide(slide, tile_size=512, overlap=0, limit_bounds=False):
+def get_patches_from_slide(slide, tile_size=1024, overlap=0, limit_bounds=False):
     """ 
     Splits an OpenSlide object into nonoverlapping patches
 
