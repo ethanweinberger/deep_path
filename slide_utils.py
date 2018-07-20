@@ -3,6 +3,7 @@ import pandas as pd
 from PIL import Image
 import shutil
 
+import pickle
 import openslide
 import csv
 from openslide.deepzoom import DeepZoomGenerator
@@ -31,6 +32,19 @@ def load_slide(path, save_thumbnail=False):
         im.save('test.jpg')
     return osr
 
+def get_slide_thumbnail(path, height, width):
+    """
+    Returns a thumbnail of the slide found at path
+
+    Args
+        path (String): Path to slide file
+    Returns:
+        thumbnail (PIL Image): Image object
+    """
+    osr = openslide.OpenSlide(path)
+    thumbnail = osr.get_thumbnail((height, width))
+    return thumbnail
+
 def get_patches_from_slide(slide, tile_size=1024, overlap=0, limit_bounds=False):
     """ 
     Splits an OpenSlide object into nonoverlapping patches
@@ -52,6 +66,9 @@ def get_patches_from_slide(slide, tile_size=1024, overlap=0, limit_bounds=False)
     x, y = 0, 0
     count, batch_count = 0, 0
     patches = []
+    coordinate_list = []
+    tiled_dims = (y_tiles, x_tiles)
+
     while y < y_tiles:
         while x < x_tiles:
             new_patch_img = np.array(tiles.get_tile(level, (x,y)), dtype=np.uint8)
@@ -59,11 +76,13 @@ def get_patches_from_slide(slide, tile_size=1024, overlap=0, limit_bounds=False)
             if np.shape(new_patch_img) == (tile_size, tile_size, 3):
                 new_patch = Patch(new_patch_img, new_patch_coords)
                 patches.append(new_patch)
+                patch_coordinates = (y,x)
+                coordinate_list.append(patch_coordinates)
                 count += 1
             x += 1
         y += 1
         x = 0
-    return patches
+    return (patches, coordinate_list, tiled_dims) 
 
 def construct_training_dataset(top_level_directory="/data/ethan/Breast_Deep_Learning/Polaris/263/", 
         file_extension="qptiff", 
@@ -98,6 +117,9 @@ def construct_training_dataset(top_level_directory="/data/ethan/Breast_Deep_Lear
     os.makedirs(her2_neg_folder)
 
     df = pd.read_csv(label_file)
+    slide_name_to_tile_dims_map = {}
+    slide_name_to_patches_map = {}
+    patch_name_to_coords_map = {}
 
     for root, dirnames, filenames in os.walk(top_level_directory):
         for filename in filenames:
@@ -124,14 +146,27 @@ def construct_training_dataset(top_level_directory="/data/ethan/Breast_Deep_Lear
                 slide = load_slide(full_path)
                 path_list = construct_annotation_path_list(slide_name)
 
-                patches = get_patches_from_slide(slide)
+                (patches, coordinate_list, tiled_dims) = get_patches_from_slide(slide)
                 counter = 0
 
-                for patch in patches:
+                slide_name_to_tile_dims_map[slide_name] = tiled_dims
+                patch_name_list = []
+                for (i, patch) in enumerate(patches):
                     if (annotations_only and patch_in_paths(patch, path_list)) or not annotations_only: 
-                        patch.save_img_to_disk(slide_dir + "/" + slide_name + "_" + str(counter))
+                        patch_name = slide_dir + "/" + slide_name + "_" + str(counter) 
+                        patch_name_list.append(patch_name)
+                        patch.save_img_to_disk(patch_name)
+                        patch_name_to_coords_map[patch_name] = coordinate_list[i]
                         counter += 1
+                slide_name_to_patches_map[slide_name] = patch_name_list
                 print("Total patches for " + slide_name + ": " + str(counter))
+    
+    with open("patch_name_to_coords_map", "wb") as fp:
+        pickle.dump(patch_name_to_coords_map, fp)
+    with open("slide_name_to_tile_dims_map", "wb") as fp:
+        pickle.dump(slide_name_to_tile_dims_map, fp)
+    with open("slide_name_to_patches_map", "wb") as fp:
+        pickle.dump(slide_name_to_patches_map, fp)
                 
 def construct_annotation_path_list(slide_name, annotation_base_path="/data/ethan/Breast_Deep_Learning/annotation_csv_files/"):
     """

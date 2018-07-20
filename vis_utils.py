@@ -12,6 +12,7 @@ import curses
 import matplotlib.pyplot as plt
 from sklearn.metrics import auc
 from scipy import interp
+from slide_utils import get_slide_thumbnail
 from PIL import Image
 from PIL import ImageFont
 from PIL import ImageDraw
@@ -22,7 +23,7 @@ Vote_Container = namedtuple("Vote_Container",
         "slide_name",
         "slide_category"])
 Confidence_Container = namedtuple("Confidence_Container",
-        ["patch_location",
+        ["patch_path",
         "confidence"])
 
 def load_graph(model_file):
@@ -105,6 +106,7 @@ def classify_whole_slides(
 
     vote_container_list = []
     confidence_container_list = []
+    patch_name_to_confidence_map = {}
     
     with tf.Session(graph = graph) as sess:
         with open(test_slide_list, "rb") as fp:
@@ -144,7 +146,8 @@ def classify_whole_slides(
             num_pos_votes = 0
             her2_plus_confidences = []
             for file_name in os.listdir(test_slide):
-                img_tensor = read_tensor_from_image_file(os.path.join(test_slide, file_name))
+                patch_name = os.path.join(test_slide, file_name)
+                img_tensor = read_tensor_from_image_file(patch_name)
                 img = sess.run(img_tensor)
                 results = sess.run(output_operation.outputs[0], {
                     input_operation.outputs[0]: img 
@@ -156,8 +159,9 @@ def classify_whole_slides(
                     num_pos_votes += 1
                 her2_plus_confidences.append(results[1])
                 conf_container = Confidence_Container(
-                        patch_location=os.path.join(test_slide, file_name),
+                        patch_path=os.path.join(test_slide, file_name),
                         confidence=results[1])
+                patch_name_to_confidence_map[patch_name] = results[1] 
                 confidence_container_list.append(conf_container)
 
             if slide_category == "pos":
@@ -168,7 +172,9 @@ def classify_whole_slides(
                 neg_slide_name_list.append(slide_name)
 
             plt.figure()
-            plt.hist(her2_plus_confidences, bins="auto")
+            plt.hist(her2_plus_confidences, bins=15, density=True)
+            plt.xlim(xmin=0, xmax=1.0)
+            plt.ylim(bottom=0, top=3.5)
             plt.title(slide_name + "patch HER2+ confidence distribution")
             plt.xlabel("Value")
             plt.ylabel("Frequency")
@@ -190,9 +196,13 @@ def classify_whole_slides(
         draw_confidence_histograms(pos_slide_confidence_lists, histogram_folder, pos_slide_name_list, "pos")
         draw_confidence_histograms(neg_slide_confidence_lists, histogram_folder, neg_slide_name_list, "neg")
     
+    confidence_container_list.sort(key = lambda x: x.confidence)
     conf_container_list_filename = os.path.join(patch_confidence_dir, "confidences")
+    patch_name_to_conf_map_filename = os.path.join(patch_confidence_dir, "map")
     with open(conf_container_list_filename, "wb") as fp:
         pickle.dump(confidence_container_list, fp)
+    with open(patch_name_to_conf_map_filename, "wb") as fp:
+        pickle.dump(patch_name_to_confidence_map, fp)
     return vote_container_list
 
 def draw_confidence_histograms(confidence_lists, histogram_folder, slide_names, slide_category, num_graphs_per_row=3):
@@ -212,16 +222,18 @@ def draw_confidence_histograms(confidence_lists, histogram_folder, slide_names, 
         None (output saved to disk)
     """
     fig, axes = plt.subplots(nrows=math.ceil(len(confidence_lists)/3),
-            ncols=num_graphs_per_row, sharex=True, sharey=True)
+            ncols=num_graphs_per_row)
     axes = axes.flatten()
     plt.xticks([0.25, 0.5, 0.75])
     for i in range(len(confidence_lists)):
         ax = axes[i]
         ax.set_ylabel("Frequency")
         ax.set_xlabel("Confidence")
+        ax.set_xlim(left=-0.05, right=1.05)
+        ax.set_ylim(bottom=0, top=3.5)
         ax.yaxis.set_tick_params(labelleft=True)
         ax.xaxis.set_tick_params(labelbottom=True)
-        ax.hist(confidence_lists[i], bins="auto")
+        ax.hist(confidence_lists[i], bins=15, density=True)
         ax.set_title(slide_names[i])
 
     #Hides any unused spots in the grid
@@ -372,6 +384,25 @@ def draw_roc_curve_kfold(fold_vote_container_lists):
     plt.savefig("k-fold_roc.png")
 
 
+def display_confidence_container(confidence_container):
+    """
+    Given a confidence container, overwrites the current
+    figure to instead display the container's image
+    and confidence value
+
+    Args:
+        confidence_container (Confidence_Container): Container to display
+
+    Returns:
+        None (output is visual)
+    """
+
+    img = Image.open(confidence_container.patch_path)
+    confidence = confidence_container.confidence
+
+    plt.title("Confidence: " + str(confidence))
+    plt.imshow(img)
+    plt.draw()
 
 def visualize_confidence_containers(confidence_container_list_path):
     """
@@ -390,12 +421,12 @@ def visualize_confidence_containers(confidence_container_list_path):
         confidence_container_list = pickle.load(fp)
 
         if len(confidence_container_list) == 0:
-            print("No containers found in confidence container list. Exitting visualization.")
+            print("No containers found in confidence container list. Exiting visualization.")
             return
 
         index = 0 
         current_container = confidence_container_list[index]
-        img = Image.open(current_container.patch_location)
+        img = Image.open(current_container.patch_path)
         confidence = current_container.confidence
 
         def on_key(event):
@@ -404,33 +435,145 @@ def visualize_confidence_containers(confidence_container_list_path):
                 if index - 1 >= 0:
                     index -= 1
                     current_container = confidence_container_list[index]
-                    img = Image.open(current_container.patch_location)
-                    confidence = current_container.confidence
-
-                    plt.title("Confidence: " + str(confidence))
-                    plt.imshow(img)
-                    plt.draw()
+                    display_confidence_container(current_container)
                 else:
                     print("Reached beginning of patches: Can't go back any further")
             elif event.key == 'right':
-                if index + 1 <= len(confidence_container_list):
+                if index < len(confidence_container_list) - 1:
                     index += 1
                     current_container = confidence_container_list[index]
-                    img = Image.open(current_container.patch_location)
-                    confidence = current_container.confidence
-
-                    plt.title("Confidence: " + str(confidence))
-                    plt.imshow(img)
-                    plt.draw()
+                    display_confidence_container(current_container)
                 else:
                     print("Reached end of patches: Can't go any farther forward")
-
+            elif (event.key == '0' or event.key == '1' or event.key == '2' or event.key == '3'
+                    or event.key == '4' or event.key == '5' or event.key == '6' or event.key == '7'
+                    or event.key == '8' or event.key == '9'):
+                index = len(confidence_container_list) // 10 * int(event.key)
+                current_container = confidence_container_list[index]
+                display_confidence_container(current_container)
+            elif event.key == '-':
+                index = len(confidence_container_list) - 1
+                current_container = confidence_container_list[index]
+                display_confidence_container(current_container)
         fig, ax = plt.subplots()
-        cid = fig.canvas.mpl_connect('key_press_event', on_key)
+        fig.canvas.mpl_connect('key_press_event', on_key)
         plt.title("Confidence: " + str(confidence))
         plt.imshow(img)
         plt.show()
 
+def create_extent_from_thumbnail(thumbnail):
+    """
+    Creates an extent tuple.  This tuple is passed to
+    matplotlib to make it possible to overlay one
+    image on top of another.
+
+    Args:
+        thumbnail (numpy array): numpy array representing our thumbnail image
+    Returns:
+        extent (tuple): Tuple of the form (xmin, xmax, ymin, ymax)
+    """
+    xmin = 0
+    xmax = thumbnail.shape[1]
+    ymin = 0
+    ymax = thumbnail.shape[0]
+    extent = (xmin, xmax, ymin, ymax)
+    return extent
+
+def display_slide(slide_patches_path, slide_name_to_patches_map, slide_name_to_tile_dims_map, 
+        patch_name_to_coords_map, patch_name_to_confidence_map, slide_top_level_dir, first_time=False):
+    """
+    Helper function for two_dim_confidence_visualization.
+    Given the path to a slide, this function updates 
+    the current plot with the confidence heatmap of
+    the given slide.
+
+    Args:
+        slide_patches_path (String): Path to slide patches for heatmap
+        slide_name_to_patches_map (Dict): Mapping from slide names to patch names
+        slide_name_to_tile_dims_map (Dict): Mapping from slide names to dimensions of tile space
+        patch_name_to_coords_map (Dict): Mapping from patch names to their coordinates in tile space
+        patch_name_to_confidence_map (Dict): Mapping from patch name to confidence value
+        slide_top_level_path (String): Path to directory containing slide folders
+        first_time (bool): Indicates whether we need to run setup code for the plot
+    Returns:
+        None (output is visual)
+    """
+
+    slide_name = os.path.basename(slide_patches_path)
+    slide_category_folder = os.path.basename(os.path.dirname(slide_patches_path))
+    slide_category = "HER2+" if slide_category_folder == "her2_pos" else "HER2-"
+
+    patches_list = slide_name_to_patches_map[slide_name]
+    tiled_dims = slide_name_to_tile_dims_map[slide_name]
+
+    confidence_array = np.zeros(tiled_dims)
+
+    for patch in patches_list:
+        patch_coords = patch_name_to_coords_map[patch]
+        patch_confidence = patch_name_to_confidence_map[patch + ".jpg"]
+        
+        confidence_array[patch_coords] = patch_confidence
+
+    slide_path = os.path.join(slide_top_level_dir, slide_name, "Scan1", slide_name + "_Scan1.qptiff")
+    thumbnail = get_slide_thumbnail(slide_path, tiled_dims[0]*100, tiled_dims[1]*100)
+    thumbnail = np.array(thumbnail)
+    extent = create_extent_from_thumbnail(thumbnail)
+
+    plt.imshow(thumbnail, extent=extent)
+    plt.title(slide_name + " (" + slide_category + ")")
+    plt.imshow(confidence_array, alpha=.2, extent=extent)
+
+    if first_time:
+        cbar = plt.colorbar()
+        cbar.set_label("Confidence", labelpad=15, rotation=270)
+
+    plt.clim(vmin=0, vmax=1.0)
+    plt.show() if first_time else plt.draw()
+
+def two_dim_confidence_visualization_interp(confidence_directory, fold_directory, test_slide_list_path,
+        slide_top_level_dir="/data/ethan/Breast_Deep_Learning/Polaris/263/"):
+    """
+    Function to visualize distribution of confidence values
+    over a slide.
+    """
+    with open("patch_name_to_coords_map", "rb") as fp:
+        patch_name_to_coords_map = pickle.load(fp)
+    with open("slide_name_to_tile_dims_map", "rb") as fp:
+        slide_name_to_tile_dims_map = pickle.load(fp)
+    with open("slide_name_to_patches_map", "rb") as fp:
+        slide_name_to_patches_map = pickle.load(fp)
+    with open(os.path.join(confidence_directory, fold_directory, "map"), "rb") as fp:
+        patch_name_to_confidence_map = pickle.load(fp)
+    with open(test_slide_list_path, "rb") as fp:
+        test_slide_list = pickle.load(fp)
+ 
+    def on_key(event):
+        nonlocal index
+        if event.key == 'left':
+            if index - 1 >= 0:
+                index -= 1
+                slide_patches_path = test_slide_list[index]
+                display_slide(slide_patches_path, slide_name_to_patches_map, slide_name_to_tile_dims_map,
+                        patch_name_to_coords_map, patch_name_to_confidence_map, slide_top_level_dir)
+            else:
+                print("Reached beginning of slides: Can't go back any further")
+        elif event.key == 'right':
+            if index < len(test_slide_list) - 1:
+                index += 1
+                slide_patches_path = test_slide_list[index]
+                display_slide(slide_patches_path, slide_name_to_patches_map, slide_name_to_tile_dims_map,
+                        patch_name_to_coords_map, patch_name_to_confidence_map, slide_top_level_dir)
+            else:
+                print("Reached end of slides: Can't go any farther forward")
+
+    fig = plt.figure(frameon = False)
+    fig.canvas.mpl_connect('key_press_event', on_key)
+    
+    index = 0
+    slide_patches_path = test_slide_list[index]
+    display_slide(slide_patches_path, slide_name_to_patches_map, slide_name_to_tile_dims_map,
+            patch_name_to_coords_map, patch_name_to_confidence_map, slide_top_level_dir, first_time=True)
+    
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--model_file_folder", help="model file to load", default="./output_graph_files")
@@ -466,4 +609,7 @@ if __name__ == "__main__":
         i += 1
     draw_roc_curve_kfold(fold_vote_container_lists) 
     """
-    visualize_confidence_containers("./patch_confidences/fold_0/confidences")
+    #two_dim_confidence_visualization("patch_confidences", "fold_0", os.path.join(args.test_slide_folder, testing_slide_lists[0]))
+    two_dim_confidence_visualization_interp("patch_confidences", "fold_0", os.path.join(args.test_slide_folder, testing_slide_lists[0]))
+    #visualize_confidence_containers("./patch_confidences/fold_0/confidences")
+    
