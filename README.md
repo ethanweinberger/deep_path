@@ -56,6 +56,10 @@ Once the model is trained it's contents will be saved as `/tmp/output_graph.pb`.
 file named `testing_slides`.  We will need this to keep track of which slides were in the test set for evaluating our 
 model later.
 
+Note to self: Current trainng command is 
+
+`python3 retrain_patient_level.py --image_dir=/data/ethan/hne_patches_tumor_stroma_interface/ --tfhub_module=https://tfhub.dev/google/imagenet/resnet_v2_152/feature_vector/1 --how_many_training_steps=300 --random_crop=5 --random_scale=5 --random_brightness=5 --flip_left_right`
+
 ### Evaluating the Model
 
 We can evaluate the performance of our model using `test_network.py`.  This script will attempt to classify slides as
