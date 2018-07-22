@@ -9,19 +9,19 @@ import collections
 import pickle
 import shutil
 
-from retrain_patient_level import add_jpeg_decoding
-from retrain_patient_level import add_input_distortions
-from retrain_patient_level import add_evaluation_step
-from retrain_patient_level import prepare_file_system
-from retrain_patient_level import should_distort_images
-from retrain_patient_level import create_module_graph
-from retrain_patient_level import add_final_retrain_ops 
-from retrain_patient_level import cache_bottlenecks
-from retrain_patient_level import get_random_cached_bottlenecks 
-from retrain_patient_level import get_random_distorted_bottlenecks
-from retrain_patient_level import run_final_eval
-from retrain_patient_level import save_graph_to_file
-from file_utils import write_pickle_to_disk
+from utils.train_utils import add_jpeg_decoding
+from utils.train_utils import add_input_distortions
+from utils.train_utils import add_evaluation_step
+from utils.train_utils import prepare_file_system
+from utils.train_utils import should_distort_images
+from utils.train_utils import create_module_graph
+from utils.train_utils import add_final_retrain_ops 
+from utils.train_utils import cache_bottlenecks
+from utils.train_utils import get_random_cached_bottlenecks 
+from utils.train_utils import get_random_distorted_bottlenecks
+from utils.train_utils import run_final_eval
+from utils.train_utils import save_graph_to_file
+from utils.file_utils import write_pickle_to_disk
 import constants
 from sklearn.model_selection import KFold
 from datetime import datetime

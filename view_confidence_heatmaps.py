@@ -1,4 +1,4 @@
-from vis_utils import two_dim_confidence_visualization
+from utils.vis_utils import two_dim_confidence_visualization
 import argparse
 
 if __name__ == "__main__":

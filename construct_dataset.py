@@ -1,4 +1,4 @@
-from slide_utils import construct_training_dataset
+from utils.slide_utils import construct_training_dataset
 import constants
 
 if __name__ == "__main__":
