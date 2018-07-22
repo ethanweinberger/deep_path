@@ -10,7 +10,7 @@ import csv
 from openslide.deepzoom import DeepZoomGenerator
 from matplotlib.path import Path
 from patch import Patch
-from file_utils import write_pickle_to_disk 
+from utils.file_utils import write_pickle_to_disk 
 import os
 import sys
 

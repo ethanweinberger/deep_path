@@ -12,9 +12,9 @@ import matplotlib.pyplot as plt
 import constants
 from sklearn.metrics import auc
 from scipy import interp
-from slide_utils import get_slide_thumbnail
-from file_utils import load_pickle_from_disk
-from file_utils import write_pickle_to_disk
+from utils.slide_utils import get_slide_thumbnail
+from utils.file_utils import load_pickle_from_disk
+from utils.file_utils import write_pickle_to_disk
 from PIL import Image
 
 from collections import namedtuple
@@ -417,9 +417,6 @@ def visualize_confidence_containers(fold_number):
         None (output is visual)
     """
 
-    if os.path.isfile(constants.CONFIDENCE_CONTAINER_LIST(fold_number)):
-        print("here")
-
     confidence_container_list = load_pickle_from_disk(constants.CONFIDENCE_CONTAINER_LIST(fold_number))
 
     if len(confidence_container_list) == 0:
@@ -607,6 +604,3 @@ def create_visualization_helper_files():
         fold_vote_container_lists.append(vote_container_list)
         i += 1
     write_pickle_to_disk(constants.FOLD_VOTE_CONTAINER_LISTS_PATH, fold_vote_container_lists)
-
-if __name__ == "__main__":
-    visualize_confidence_containers(0)
