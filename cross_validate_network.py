@@ -7,6 +7,7 @@ import tensorflow as tf
 import tensorflow_hub as hub
 import collections
 import pickle
+import shutil
 
 from retrain_patient_level import add_jpeg_decoding
 from retrain_patient_level import add_input_distortions
@@ -20,8 +21,9 @@ from retrain_patient_level import get_random_cached_bottlenecks
 from retrain_patient_level import get_random_distorted_bottlenecks
 from retrain_patient_level import run_final_eval
 from retrain_patient_level import save_graph_to_file
+from file_utils import write_pickle_to_disk
+import constants
 from sklearn.model_selection import KFold
-from test_network import test_trained_network
 from datetime import datetime
 
 FLAGS = None
@@ -117,9 +119,13 @@ def create_image_lists_kfold(image_dir, num_folds=5):
       }
       current_fold += 1
 
+  if os.path.exists(constants.TEST_SLIDE_FOLDER):
+      shutil.rmtree(constants.TEST_SLIDE_FOLDER)
+
+  os.makedirs(constants.TEST_SLIDE_FOLDER)
   for i in range(num_folds):
-    with open("../testing_slides_" + str(i), "wb") as fp:
-      pickle.dump(testing_slide_lists[i], fp)
+    write_pickle_to_disk(os.path.join(constants.TEST_SLIDE_FOLDER, "testing_slide_list_" + str(i)),
+      testing_slide_lists[i])
 
   return result_list
 
@@ -139,6 +145,10 @@ def main(_):
   # Look at the folder structure, and create lists of all the images.
   image_lists_folds = create_image_lists_kfold(FLAGS.image_dir)
   network_count = 0
+
+  if not os.path.exists(constants.MODEL_FILE_FOLDER):
+    os.makedirs(constants.MODEL_FILE_FOLDER)
+
   for image_lists in image_lists_folds: 
 
     class_count = len(image_lists.keys())
@@ -266,10 +276,11 @@ def main(_):
 
       # Write out the trained graph and labels with the weights stored as
       # constants.
-      tf.logging.info('Save final result to : ' + FLAGS.output_graph + "_" + str(network_count))
       if wants_quantization:
         tf.logging.info('The model is instrumented for quantization with TF-Lite')
-      save_graph_to_file(graph, FLAGS.output_graph + "_" + str(network_count), module_spec, class_count, FLAGS)
+
+      save_graph_to_file(graph, os.path.join(constants.MODEL_FILE_FOLDER, FLAGS.output_graph + "_" + str(network_count) + ".pb"),
+        module_spec, class_count, FLAGS)
       with tf.gfile.FastGFile(FLAGS.output_labels, 'w') as f:
         f.write('\n'.join(image_lists.keys()) + '\n')
 
@@ -282,13 +293,13 @@ if __name__ == '__main__':
   parser.add_argument(
       '--image_dir',
       type=str,
-      default='',
+      default=constants.PATCH_OUTPUT_DIRECTORY,
       help='Path to folders of labeled images.'
   )
   parser.add_argument(
       '--output_graph',
       type=str,
-      default='/tmp/output_graph.pb',
+      default='output_graph',
       help='Where to save the trained graph.'
   )
   parser.add_argument(
@@ -377,7 +388,7 @@ if __name__ == '__main__':
   )
   parser.add_argument(
       '--flip_left_right',
-      default=False,
+      default=True,
       help="""\
       Whether to randomly flip half of the training images horizontally.\
       """,
@@ -386,7 +397,7 @@ if __name__ == '__main__':
   parser.add_argument(
       '--random_crop',
       type=int,
-      default=0,
+      default=10,
       help="""\
       A percentage determining how much of a margin to randomly crop off the
       training images.\
@@ -395,7 +406,7 @@ if __name__ == '__main__':
   parser.add_argument(
       '--random_scale',
       type=int,
-      default=0,
+      default=10,
       help="""\
       A percentage determining how much to randomly scale up the size of the
       training images by.\
@@ -404,7 +415,7 @@ if __name__ == '__main__':
   parser.add_argument(
       '--random_brightness',
       type=int,
-      default=0,
+      default=10,
       help="""\
       A percentage determining how much to randomly multiply the training image
       input pixels up or down by.\
@@ -414,7 +425,7 @@ if __name__ == '__main__':
       '--tfhub_module',
       type=str,
       default=(
-          'https://tfhub.dev/google/imagenet/inception_v3/feature_vector/1'),
+          'https://tfhub.dev/google/imagenet/resnet_v2_152/feature_vector/1'),
       help="""\
       Which TensorFlow Hub module to use.
       See https://github.com/tensorflow/hub/blob/r0.1/docs/modules/image.md

@@ -4,22 +4,22 @@ from PIL import Image
 import shutil
 
 import pickle
+import constants
 import openslide
 import csv
 from openslide.deepzoom import DeepZoomGenerator
 from matplotlib.path import Path
 from patch import Patch
-import augmentation
+from file_utils import write_pickle_to_disk 
 import os
 import sys
 
-def load_slide(path, save_thumbnail=False):
+def load_slide(path):
     """
     Function for opening slide images
 
     Args:
         path: Path to the image file
-        save_thumbnail: If true, save thumbnail of the image. Used for testing.
 
     Returns:
         OpenSlide object
@@ -27,9 +27,6 @@ def load_slide(path, save_thumbnail=False):
     """
 
     osr = openslide.OpenSlide(path)
-    if save_thumbnail:
-        im = osr.get_thumbnail((200, 200))
-        im.save('test.jpg')
     return osr
 
 def get_slide_thumbnail(path, height, width):
@@ -84,10 +81,11 @@ def get_patches_from_slide(slide, tile_size=1024, overlap=0, limit_bounds=False)
         x = 0
     return (patches, coordinate_list, tiled_dims) 
 
-def construct_training_dataset(top_level_directory="/data/ethan/Breast_Deep_Learning/Polaris/263/", 
-        file_extension="qptiff", 
-        output_dir="/data/ethan/hne_patches_tumor_stroma_interface/",
-        label_file="/data/ethan/Breast_Deep_Learning/labels.csv", 
+def construct_training_dataset(top_level_directory, 
+        file_extension, 
+        output_dir,
+        label_file,
+        annotation_csv_directory,
         annotations_only=True):
     """
     Recursively searches for files of the given slide file format starting at
@@ -100,6 +98,7 @@ def construct_training_dataset(top_level_directory="/data/ethan/Breast_Deep_Lear
         file_extension (String): File extension for slide files
         output_dir (String): Folder in which patch files will be saved
         label_file (String): CSV file containing the true labels for each slide
+        annotation_csv_directory (String): Path to top level directory containing slide annotation csv files
         annotations_only (Boolean): When true, only saves patches that have at least one corner within an annotation path
     Returns:
         None (Patches saved to disk)
@@ -144,7 +143,7 @@ def construct_training_dataset(top_level_directory="/data/ethan/Breast_Deep_Lear
                 slide_dir = os.path.join(class_folder, slide_name)
                 os.makedirs(slide_dir)
                 slide = load_slide(full_path)
-                path_list = construct_annotation_path_list(slide_name)
+                path_list = construct_annotation_path_list(slide_name, annotation_csv_directory)
 
                 (patches, coordinate_list, tiled_dims) = get_patches_from_slide(slide)
                 counter = 0
@@ -161,14 +160,16 @@ def construct_training_dataset(top_level_directory="/data/ethan/Breast_Deep_Lear
                 slide_name_to_patches_map[slide_name] = patch_name_list
                 print("Total patches for " + slide_name + ": " + str(counter))
     
-    with open("patch_name_to_coords_map", "wb") as fp:
-        pickle.dump(patch_name_to_coords_map, fp)
-    with open("slide_name_to_tile_dims_map", "wb") as fp:
-        pickle.dump(slide_name_to_tile_dims_map, fp)
-    with open("slide_name_to_patches_map", "wb") as fp:
-        pickle.dump(slide_name_to_patches_map, fp)
+    if os.path.exists(constants.VISUALIZATION_HELPER_FILE_FOLDER):
+        shutil.rmtree(constants.VISUALIZATION_HELPERS_FILE_FOLDER)
+
+    os.makedirs(constants.VISUALIZATION_HELPER_FILE_FOLDER)
+
+    write_pickle_to_disk(constants.PATCH_NAME_TO_COORDS_MAP, patch_name_to_coords_map)
+    write_pickle_to_disk(constants.SLIDE_NAME_TO_TILE_DIMS_MAP, slide_name_to_tile_dims_map)
+    write_pickle_to_disk(constants.SLIDE_NAME_TO_PATCHES_MAP, slide_name_to_patches_map)
                 
-def construct_annotation_path_list(slide_name, annotation_base_path="/data/ethan/Breast_Deep_Learning/annotation_csv_files/"):
+def construct_annotation_path_list(slide_name, annotation_base_path):
     """
     Given the name of a slide, returns a list of polygons representing the annotations
     drawn on that slide.
