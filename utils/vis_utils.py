@@ -120,8 +120,8 @@ def classify_whole_slides(
         num_true_negatives = 0
         
         df = pd.read_csv(label_file)
-        pos_slide_confidence_lists = []
-        neg_slide_confidence_lists = []
+        pos_slide_confidence_lists = {}
+        neg_slide_confidence_lists = {}
 
         pos_slide_name_list = []
         neg_slide_name_list = []
@@ -164,23 +164,11 @@ def classify_whole_slides(
                 confidence_container_list.append(conf_container)
 
             if slide_category == "pos":
-                pos_slide_confidence_lists.append(her2_plus_confidences)
+                pos_slide_confidence_lists[slide_name] = her2_plus_confidences
                 pos_slide_name_list.append(slide_name)
             elif slide_category == "neg":
-                neg_slide_confidence_lists.append(her2_plus_confidences)
+                neg_slide_confidence_lists[slide_name] = her2_plus_confidences
                 neg_slide_name_list.append(slide_name)
-
-            plt.figure()
-            plt.hist(her2_plus_confidences, bins=15, density=True)
-            plt.xlim(xmin=0, xmax=1.0)
-            plt.ylim(bottom=0, top=3.5)
-            plt.title(slide_name + "patch HER2+ confidence distribution")
-            plt.xlabel("Value")
-            plt.ylabel("Frequency")
-
-            histogram_file_path = os.path.join(histogram_folder, slide_category, slide_name)
-            plt.savefig(histogram_file_path + ".png")
-            plt.close()
 
             total_votes = num_pos_votes + num_neg_votes
             percent_pos_votes = num_pos_votes / total_votes
@@ -192,20 +180,17 @@ def classify_whole_slides(
 
             vote_container_list.append(current_slide_vote_container)
         
-        draw_confidence_histograms(pos_slide_confidence_lists, histogram_folder, pos_slide_name_list, "pos")
-        draw_confidence_histograms(neg_slide_confidence_lists, histogram_folder, neg_slide_name_list, "neg")
-    
     confidence_container_list.sort(key = lambda x: x.confidence)
-    conf_container_list_filename = constants.CONFIDENCE_CONTAINER_LIST(fold_number)
-    patch_name_to_conf_map_filename = constants.PATCH_NAME_TO_CONFIDENCE_MAP(fold_number)
 
-    write_pickle_to_disk(conf_container_list_filename, confidence_container_list)
-    write_pickle_to_disk(patch_name_to_conf_map_filename, patch_name_to_confidence_map)
+    write_pickle_to_disk(constants.CONFIDENCE_CONTAINER_LIST(fold_number), confidence_container_list)
+    write_pickle_to_disk(constants.PATCH_NAME_TO_CONFIDENCE_MAP(fold_number), patch_name_to_confidence_map)
+    write_pickle_to_disk(constants.POS_SLIDE_CONFIDENCE_LISTS(fold_number), pos_slide_confidence_lists)
+    write_pickle_to_disk(constants.NEG_SLIDE_CONFIDENCE_LISTS(fold_number), neg_slide_confidence_lists)
 
     return vote_container_list
 
 
-def draw_confidence_histograms(confidence_lists, histogram_folder, slide_names, slide_category, num_graphs_per_row=3):
+def draw_confidence_histograms(fold_number, slide_category, num_graphs_per_row=3):
     """
     Given a list of lists of confidence values, turns
     each list into a histogram and displays them
@@ -221,11 +206,20 @@ def draw_confidence_histograms(confidence_lists, histogram_folder, slide_names, 
     Returns:
         None (output saved to disk)
     """
-    fig, axes = plt.subplots(nrows=math.ceil(len(confidence_lists)/3),
+    if slide_category == "pos":
+        confidence_lists_path = constants.POS_SLIDE_CONFIDENCE_LISTS(fold_number)
+    elif slide_category == "neg":
+        confidence_lists_path = constants.NEG_SLIDE_CONFIDENCE_LISTS(fold_number)
+    else:
+        print("Invalid parameter provided for slide_category.  Acceptable options are 'pos' or 'neg'")
+
+    confidence_lists = load_pickle_from_disk(confidence_lists_path)
+    fig, axes = plt.subplots(nrows=math.ceil(len(confidence_lists.keys())/3),
             ncols=num_graphs_per_row)
     axes = axes.flatten()
     plt.xticks([0.25, 0.5, 0.75])
-    for i in range(len(confidence_lists)):
+    i = 0
+    for key, value in confidence_lists.items():
         ax = axes[i]
         ax.set_ylabel("Frequency")
         ax.set_xlabel("Confidence")
@@ -233,15 +227,22 @@ def draw_confidence_histograms(confidence_lists, histogram_folder, slide_names, 
         ax.set_ylim(bottom=0, top=3.5)
         ax.yaxis.set_tick_params(labelleft=True)
         ax.xaxis.set_tick_params(labelbottom=True)
-        ax.hist(confidence_lists[i], bins=15, density=True)
-        ax.set_title(slide_names[i])
+        ax.hist(value, bins=15, density=True)
+        ax.set_title(key)
+        i += 1
 
     #Hides any unused spots in the grid
     for i in range(len(confidence_lists), len(axes)):
         axes[i].set_visible(False)
-    filepath = os.path.join(histogram_folder, slide_category)
+    
     plt.tight_layout()
-    fig.savefig(filepath + "histogram_composite.png")
+
+    if not os.path.exists(constants.HISTOGRAM_SUBFOLDER(fold_number)):
+        os.makedirs(constants.HISTOGRAM_SUBFOLDER(fold_number))
+    filepath = os.path.join(constants.HISTOGRAM_SUBFOLDER(fold_number),
+            slide_category + "_histogram_composite.png")
+    fig.savefig(filepath)
+
     plt.close()
     
 
@@ -471,6 +472,7 @@ def create_extent_from_thumbnail(thumbnail):
         thumbnail (numpy array): numpy array representing our thumbnail image
     Returns:
         extent (tuple): Tuple of the form (xmin, xmax, ymin, ymax)
+
     """
     xmin = 0
     xmax = thumbnail.shape[1]

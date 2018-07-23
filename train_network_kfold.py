@@ -37,7 +37,7 @@ CHECKPOINT_NAME = '/tmp/_retrain_checkpoint'
 FAKE_QUANT_OPS = ('FakeQuantWithMinMaxVars',
                   'FakeQuantWithMinMaxVarsPerChannel')
 
-def create_image_lists_kfold(image_dir, num_folds=5):
+def create_image_lists_kfold(image_dir, num_folds):
   """
   Builds a list of lists of training images from the file system.  The number
   of lists here will be equal to the num_folds, analogous to k-fold cross
@@ -143,7 +143,7 @@ def main(_):
   prepare_file_system(FLAGS)
 
   # Look at the folder structure, and create lists of all the images.
-  image_lists_folds = create_image_lists_kfold(FLAGS.image_dir)
+  image_lists_folds = create_image_lists_kfold(FLAGS.image_dir, constants.NUM_FOLDS)
   network_count = 0
 
   if not os.path.exists(constants.MODEL_FILE_FOLDER):

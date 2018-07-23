@@ -1,12 +1,14 @@
 import os
 
-LABEL_FILE              = "/data/ethan/Breast_Deep_Learning/labels.csv"
+#Training Parameters
+NUM_FOLDS = 5
 
 #Data directories
 SLIDE_FILE_DIRECTORY     = "/data/ethan/Breast_Deep_Learning/Polaris/263/"
 SLIDE_FILE_EXTENSION     = "qptiff" 
 PATCH_OUTPUT_DIRECTORY   = "/data/ethan/hne_patches/tumor_stroma_interface/"
 LABEL_FILE_PATH          = "/data/ethan/Breast_Deep_Learning/labels.csv"
+LABEL_FILE              = "/data/ethan/Breast_Deep_Learning/labels.csv"
 ANNOTATION_CSV_DIRECTORY = "/data/ethan/Breast_Deep_Learning/annotation_csv_files/" 
 
 #Constants for pre-trained models
@@ -17,7 +19,9 @@ TEST_SLIDE_FOLDER       = "./testing_slide_lists"
 TEST_SLIDE_LIST         = "testing_slide_list"
 
 #Visualization output locations
-HISTOGRAM_FOLDER        = "./histograms"
+HISTOGRAM_FOLDER = "histograms"
+def HISTOGRAM_SUBFOLDER(fold_number):
+    return os.path.join(HISTOGRAM_FOLDER, "fold_" + str(fold_number))
 
 #Visualization helper files
 VISUALIZATION_HELPER_FILE_FOLDER = "visualization_helper_files"
@@ -33,6 +37,10 @@ def PATCH_NAME_TO_CONFIDENCE_MAP(fold_number):
     return os.path.join(PATCH_CONFIDENCE_FOLDER, "fold_" + str(fold_number), "patch_name_to_confidence_map")
 def CONFIDENCE_CONTAINER_LIST(fold_number):
     return os.path.join(PATCH_CONFIDENCE_FOLDER, "fold_" + str(fold_number), "confidence_containers")
+def POS_SLIDE_CONFIDENCE_LISTS(fold_number):
+    return os.path.join(PATCH_CONFIDENCE_FOLDER, "fold_" + str(fold_number), "pos_slide_confidence_lists")
+def NEG_SLIDE_CONFIDENCE_LISTS(fold_number):
+    return os.path.join(PATCH_CONFIDENCE_FOLDER, "fold_" + str(fold_number), "neg_slide_confidence_lists")
     
 
 
