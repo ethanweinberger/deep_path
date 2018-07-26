@@ -15,53 +15,149 @@ Code for Kluger Lab project to classify breast cancer tissue into HER2+ or HER2-
 Openslide can be installed by following the instructions at https://openslide.org/download/.  All
 other libraries can be installed via pip.
 
-## Usage:
+## Constructing a data set:
 
-### Constructing a data set:
+**Assumptions**:  The library assumes that the user has available a collection of whole-slide images (WSIs) whose region
+of interests have been annotated using the open source program QuPath.
 
-This project assumes that the user has available a collection of whole-slide images (WSIs) of breast tissue that
-have undergone H&E staining.  We also assume that these slides have had their tumor regions identified via
-annotations using the open-source software QuPath.
+### Extracting annotations from QuPath
 
-Starting from QuPath, the user should first open their qpproj file encompassing their annotations and then
+**Usage**: Starting from QuPath, the user should first open their qpproj file encompassing their annotations and then
 run the `extract_polygons.groovy` script from QuPath's automation interface.  Doing so will generate a folder
 for each slide containing CSV files with the coordinates of that slide's annotations.
 
-After doing so, the function `construct_training_dataset` from `slide_utils.py` should be run to
-create a training dataset of non-overlapping patches from the slides.  The user will need to change
-`annotation_base_path` in `construct_annotation_path_list` as well as provide the correct path for
-`top_level_directory` in `construct_training_dataset`.  The user will also need to provide a CSV
-containing the true labels for each slide (`label_file` argument), as well as potentially edit the lines of code in
-`construct_training_dataset` that extract the labels from the CSV.
+### Extracting patches from WSI's
 
-Running `construct_training_dataset` will save patches to
+**Usage**: `python3 construct_training_dataset`
 
-`output_dir/her2_classification/slide_name`
+**Description**: Creates a dataset of non-overlapping patches from the slides.  
 
-where `her2_classification` is either `her2_pos` or `her2_neg` depending on the true value in the label file.
+**Relevant Constants**:
 
-### (re-)Training the model
+	* `SLIDE_FILE_DIRECTORY`
+	* `SLIDE_FILE_EXTENSION`
+	* `PATCH_OUTPUT_DIRECTORY` 
+	* `LABEL_FILE_PATH`
+	* `ANNOTATION_CSV_DIRECTORY`
 
-To retrain a pre-trained model pretrained model (ex. Inceptionv3, ResNet50) to classify slides.  We can use
-the script `retrain_patient_level.py`.  This script will divide the slides into training, validation, and test
-sets at a ratio of 80%/10%/10%.  An example command with this script is below:
+## Model (re-)Trainng
 
-`python3 retrain_patient_level.py --image_dir=/data/ethan/hne_patches_tumor_only --tfhub_module=https://tfhub.dev/google/imagenet/resnet_v2_152/feature_vector/1 --how_many_training_steps=1000`
+**Usage**: `python3 train_network_kfold.py`.  Outputs trained model files to `MODEL_FILE_FOLDER` found in `constants.py`. 
 
-The parameter `image_dir` must point to the directory containing the `her2_pos` and `her2_neg` folders (which themselves contain the patches
-from each slide belonging to their respective categories).  `tfhub_module` must point to a pretrained module hosted on tfhub.dev.  Finally,
-`how_many_training_steps` controls how many epochs we'll use to train our model.
+**Description**:  Retrains the final layer of a pre-trained model (ex. Inceptionv3, ResNet50) to classify patches of
+whole-slide images.  To better evaluate the robustness of the model, the script will train k models, each with a different
+train-test split.  Train/test data split are determined as in k-fold cross validation.  A good starting point is k = 5
+giving a train/test ratio of 80%/20%.
 
-Once the model is trained it's contents will be saved as `/tmp/output_graph.pb`.  Our module will also save a pickle
-file named `testing_slides`.  We will need this to keep track of which slides were in the test set for evaluating our 
-model later.
+**Relevant Constants**:
 
-Note to self: Current trainng command is 
+	* `NUM_FOLDS`
+	* `TFHUB_MODULE`
+	* `HOW_MANY_TRAINNG_STEPS`
+	* `RANDOM_CROP`
+	* `RANDOM_SCALE`
+	* `RANDOM_BRIGHTNESS`
+	* `FLIP_LEFT_RIGHT`
+	* `MODEL_FILE_FOLDER`
+	* `INPUT_LAYER`
+	* `OUTPUT_LAYER`
+	* `TEST_SLIDE_FOLDER`
+	* `TEST_SLIDE_LIST`
 
-`python3 retrain_patient_level.py --image_dir=/data/ethan/hne_patches_tumor_stroma_interface/ --tfhub_module=https://tfhub.dev/google/imagenet/resnet_v2_152/feature_vector/1 --how_many_training_steps=300 --random_crop=5 --random_scale=5 --random_brightness=5 --flip_left_right`
 
-### Evaluating the Model
+### Model Evaluation
 
-We can evaluate the performance of our model using `test_network.py`.  This script will attempt to classify slides as
-HER2-positive or HER2-negative by passing all patches for a given slide through the network, obtaining the classification
-for each patch, then using a majority vote to determine the final class for the slide  
+**Usage**: `python3 create_visualization_helper_files.py`
+
+**Description**: Evaluates model on testing data and saves results in helper files used in the visualization scripts (below).
+
+**Relevant Constants**:
+	
+	* `TEST_SLIDE_FOLDER`
+	* `MODEL_FILE_FOLDER`
+	* `LABEL_FILE_PATH`
+	* `INPUT_LAYER`
+	* `OUTPUT_LAYER`
+	* `HISTOGRAM_FOLDER`
+	* `FOLD_VOTE_CONTAINER_LISTS`
+	* `PATCH_CONFIDENCE_FOLD_SUBFOLDER`
+	* `CONFIDENCE_CONTAINER_LIST`
+	* `PATCH_NAME_TO_CONFIDENCE_MAP`
+	* `POS_SLIDE_CONFIDENCE_LISTS`
+	* `NEG_SLIDE_CONFIDENCE_LISTS`
+
+## Visualization Tools
+
+### Histograms
+
+**Usage**: `python3 draw_histograms.py`.  Outputs PNG files in the directory `HISTOGRAM_FOLDER` as specified in `constants.py`. 
+
+**Description**: Display the relative frequencies of patches for each test patient classified as positive by the network for a given fold.
+
+**Relevant Constants**:
+
+	* `POS_SLIDE_CONFIDENCE_LISTS`
+	* `NEG_SLIDE_CONFIDENCE_LISTS`
+	* `HISTOGRAM_FOLDER`
+	* `HISTOGRAM_SUBFOLDER` 
+
+**Example**:
+
+<img align="center" src="https://raw.githubusercontent.com/ethanweinberger/deep_path/master/example_images/pos_histogram_composite.png"/>
+<img align="center" src="https://raw.githubusercontent.com/ethanweinberger/deep_path/master/example_images/neg_histogram_composite.png"/>
+
+### Composite ROC Curve
+
+**Usage**: `python3 draw_kfold_roc_curve.py`. Outputs PNG file in the directory from which the script is run.
+
+**Description**: Computes ROC curves for each of the k trained networks.  Displays these as well as averages them into a
+single curve with accompanying error bars.
+
+
+**Relevant Constants**:
+
+	* `FOLD_VOTE_CONTAINER_LISTS_PATH`
+
+**Example**:
+
+<img align="center" src="https://raw.githubusercontent.com/ethanweinberger/deep_path/master/example_images/k-fold_roc.png"/>
+
+### Patch Visualizer
+
+**Usage**: `python3 patch_visualizer.py --which_fold = placeholder_fold_number`.  Output displays in new window, patches
+can be scrolled through using arrow keys, as well as number keys to jump to the corresponding decile (ex. hitting 4
+goes to the 40th percentile).  Hitting the '-' key moves to the slide with the highest confidence.  
+
+**Description**: Displays patches for test patients in a given fold.  Patches are shown with their confidence value
+for being classified as positive.
+
+**Relevant Constants**:
+
+	* `CONFIDENCE_CONTAINER_LIST`
+
+**Example**:
+
+<img align="center" src="https://raw.githubusercontent.com/ethanweinberger/deep_path/master/example_images/patch_visualizer_example.png"/> 
+
+### Confidence Heatmaps
+
+**Usage**: `python3 view_confidence_heatmaps.py --which_fold = placeholder_fold_number`.  Output displays in a new window,
+slides can be scrolled through using arrow keys.
+
+**Description**: Overlays heatmaps onto whole slide image thumbnails describing the confidence of patches being classified
+as positive.
+
+**Relevant Constants**:
+
+	* `PATCH_NAME_TO_COORDS_MAP`
+	* `SLIDE_NAME_TO_TILE_DIMS_MAP`
+	* `SLIDE_NAME_TO_PATCHES_MAP`
+	* `PATCH_NAME_TO_CONFIDENCE_MAP`
+	* `TEST_SLIDE_FOLDER`
+	* `TEST_SLIDE_LIST`
+	* `SLIDE_FILE_DIRECTORY` 
+
+**Example**:
+
+<img align="center" src="https://raw.githubusercontent.com/ethanweinberger/deep_path/master/example_images/heatmap_example.png"/>
+ 
