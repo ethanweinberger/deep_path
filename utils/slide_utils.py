@@ -84,9 +84,7 @@ def get_patches_from_slide(slide, tile_size=1024, overlap=0, limit_bounds=False)
 def construct_training_dataset(top_level_directory, 
         file_extension, 
         output_dir,
-        label_file,
-        annotation_csv_directory,
-        annotations_only=True):
+        annotation_csv_directory):
     """
     Recursively searches for files of the given slide file format starting at
     the provided top level directory.  As slide files are found, they are broken
@@ -97,7 +95,6 @@ def construct_training_dataset(top_level_directory,
                                       lie all of our files
         file_extension (String): File extension for slide files
         output_dir (String): Folder in which patch files will be saved
-        label_file (String): CSV file containing the true labels for each slide
         annotation_csv_directory (String): Path to top level directory containing slide annotation csv files
         annotations_only (Boolean): When true, only saves patches that have at least one corner within an annotation path
     Returns:
@@ -105,17 +102,18 @@ def construct_training_dataset(top_level_directory,
     """
     
 
-    her2_pos_folder = os.path.join(output_dir, "her2_pos")
-    her2_neg_folder = os.path.join(output_dir, "her2_neg")
+    stroma_folder   = os.path.join(output_dir, "stroma")
+    large_tumor_cells_folder = os.path.join(output_dir, "large_tumor_cells")
+    small_tumor_cells_folder = os.path.join(output_dir, "small_tumor_cells")
 
     if os.path.exists(output_dir):
         shutil.rmtree(output_dir)
 
     os.makedirs(output_dir)
-    os.makedirs(her2_pos_folder)
-    os.makedirs(her2_neg_folder)
+    os.makedirs(stroma_folder)
+    os.makedirs(large_tumor_cells_folder)
+    os.makedirs(small_tumor_cells_folder)
 
-    df = pd.read_csv(label_file)
     slide_name_to_tile_dims_map = {}
     slide_name_to_patches_map = {}
     patch_name_to_coords_map = {}
@@ -124,26 +122,36 @@ def construct_training_dataset(top_level_directory,
         for filename in filenames:
             if filename.endswith(file_extension):
                 full_path = os.path.join(root, filename)
-                slide_name = os.path.splitext(os.path.basename(full_path))[0].split("_")[0]
+                slide_name = os.path.splitext(os.path.basename(full_path))[0]
 
                 print("Splitting " + slide_name)
-                slide_label_row = df.loc[df.specnum_formatted == slide_name]
 
-                if slide_label_row.empty:
-                    continue
+                #if slide_label_row.empty:
+                #    continue
                 
-                slide_label = slide_label_row.iloc[0].her2_ihc
-                if slide_label == 0.0 or slide_label == 1.0:
-                    class_folder = her2_neg_folder
-                elif slide_label == 2.0 or slide_label == 3.0:
-                    class_folder = her2_pos_folder
-                else:
-                    continue #In case we have an empty or malformed cell
+                #slide_label = slide_label_row.iloc[0].her2_ihc
+                #if slide_label == 0.0 or slide_label == 1.0:
+                #    class_folder = her2_neg_folder
+                #elif slide_label == 2.0 or slide_label == 3.0:
+                #    class_folder = her2_pos_folder
+                #else:
+                #    continue #In case we have an empty or malformed cell
 
-                slide_dir = os.path.join(class_folder, slide_name)
-                os.makedirs(slide_dir)
+                slide_stroma_dir = os.path.join(stroma_folder, slide_name)
+                slide_large_cells_dir = os.path.join(large_tumor_cells_folder, slide_name)
+                slide_small_cells_dir = os.path.join(small_tumor_cells_folder, slide_name)
+
+                os.makedirs(slide_stroma_dir)
+                os.makedirs(slide_large_cells_dir)
+                os.makedirs(slide_small_cells_dir)
+
                 slide = load_slide(full_path)
-                path_list = construct_annotation_path_list(slide_name, annotation_csv_directory)
+                stroma_path_list = construct_annotation_path_list(slide_name, os.path.join(annotation_csv_directory,
+                    "stroma_csv_files"))
+                large_cells_path_list = construct_annotation_path_list(slide_name, os.path.join(annotation_csv_directory,
+                    annotation_csv_directory, "large_cell_tumor_csv_files")) 
+                small_cells_path_list = construct_annotation_path_list(slide_name, os.path.join(annotation_csv_directory,
+                    annotation_csv_directory, "small_cell_tumor_csv_files"))
 
                 (patches, coordinate_list, tiled_dims) = get_patches_from_slide(slide)
                 counter = 0
@@ -151,8 +159,20 @@ def construct_training_dataset(top_level_directory,
                 slide_name_to_tile_dims_map[slide_name] = tiled_dims
                 patch_name_list = []
                 for (i, patch) in enumerate(patches):
-                    if (annotations_only and patch_in_paths(patch, path_list)) or not annotations_only: 
-                        patch_name = slide_dir + "/" + slide_name + "_" + str(counter) 
+                    if patch_in_paths(patch, stroma_path_list): 
+                        patch_name = os.path.join(slide_stroma_dir, slide_name + "_" + str(counter)) 
+                        patch_name_list.append(patch_name)
+                        patch.save_img_to_disk(patch_name)
+                        patch_name_to_coords_map[patch_name] = coordinate_list[i]
+                        counter += 1
+                    elif patch_in_paths(patch, large_cells_path_list): 
+                        patch_name = os.path.join(slide_large_cells_dir, slide_name + "_" + str(counter)) 
+                        patch_name_list.append(patch_name)
+                        patch.save_img_to_disk(patch_name)
+                        patch_name_to_coords_map[patch_name] = coordinate_list[i]
+                        counter += 1
+                    elif patch_in_paths(patch, small_cells_path_list): 
+                        patch_name = os.path.join(slide_small_cells_dir, slide_name + "_" + str(counter)) 
                         patch_name_list.append(patch_name)
                         patch.save_img_to_disk(patch_name)
                         patch_name_to_coords_map[patch_name] = coordinate_list[i]
@@ -181,13 +201,12 @@ def construct_annotation_path_list(slide_name, annotation_base_path):
         path_list (Path list): List of Path objects representing the annotations on the given slide
     """
 
-    #TODO: Can I get rid of the _Scan1 somehow?
-    full_annotation_dir = annotation_base_path + slide_name + "_Scan1"
+    full_annotation_dir = os.path.join(annotation_base_path, slide_name)
     annotation_list = []
     
     for filename in os.listdir(full_annotation_dir):
         if filename.endswith(".csv"):
-            annotation_file = full_annotation_dir + "/" + filename 
+            annotation_file = os.path.join(full_annotation_dir, filename)
             current_annotation = read_annotation(annotation_file)
             annotation_list.append(current_annotation)
     

@@ -4,12 +4,12 @@ import os
 NUM_FOLDS = 5
 
 #Data directories
-SLIDE_FILE_DIRECTORY     = "/data/ethan/Breast_Deep_Learning/Polaris/263/"
-SLIDE_FILE_EXTENSION     = "qptiff" 
-PATCH_OUTPUT_DIRECTORY   = "/data/ethan/hne_patches/tumor_stroma_interface/"
-LABEL_FILE_PATH          = "/data/ethan/Breast_Deep_Learning/labels.csv"
-LABEL_FILE              = "/data/ethan/Breast_Deep_Learning/labels.csv"
-ANNOTATION_CSV_DIRECTORY = "/data/ethan/Breast_Deep_Learning/annotation_csv_files/" 
+SLIDE_FILE_DIRECTORY     = "/data/ethan/Marrow_Slides"
+SLIDE_FILE_EXTENSION     = "svs" 
+PATCH_OUTPUT_DIRECTORY   = "/data/ethan/marrow_patches/"
+#LABEL_FILE_PATH          = "/data/ethan/Breast_Deep_Learning/labels.csv"
+#LABEL_FILE              = "/data/ethan/Breast_Deep_Learning/labels.csv"
+ANNOTATION_CSV_DIRECTORY = "/data/ethan/marrow_csv_files/" 
 
 #Constants for pre-trained models
 MODEL_FILE_FOLDER       = "./output_graph_files"
