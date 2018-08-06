@@ -9,9 +9,9 @@ mkdirs(large_cell_tumor_path)
 mkdirs(small_cell_tumor_path)
 
 def image_name = getProjectEntry().getImageName()
-stroma_image_path = buildFilePath(stroma_path, image_name)
-large_cell_tumor_image_path = buildFilePath(large_cell_tumor_path, image_name)
-small_cell_tumor_image_path = buildFilePath(small_cell_tumor_path, image_name)
+stroma_image_path = buildFilePath(image_name, stroma_path)
+large_cell_tumor_image_path = buildFilePath(image_name, large_cell_tumor_path)
+small_cell_tumor_image_path = buildFilePath(image_name, large_cell_tumor_path)
 
 mkdirs(stroma_image_path)
 mkdirs(large_cell_tumor_image_path)
