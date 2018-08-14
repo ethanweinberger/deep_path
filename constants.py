@@ -6,7 +6,7 @@ NUM_FOLDS = 2
 #Data directories
 SLIDE_FILE_DIRECTORY     = "/data/ethan/Marrow_Slides"
 SLIDE_FILE_EXTENSION     = "svs" 
-PATCH_SIZE               = 512
+PATCH_SIZE               = 256
 PATCH_OUTPUT_DIRECTORY   = "/data/ethan/marrow_patches_" + str(PATCH_SIZE) + "/"
 LARGE_CELL_PATCHES       = os.path.join(PATCH_OUTPUT_DIRECTORY, "large_tumor_cells")
 SMALL_CELL_PATCHES       = os.path.join(PATCH_OUTPUT_DIRECTORY, "small_tumor_cells")

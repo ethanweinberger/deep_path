@@ -64,7 +64,8 @@ def create_image_lists_kfold(image_dir, num_folds):
   class_dirs = []
   slide_dirs = []
 
-  for directory in os.listdir(image_dir):
+  for directory in sorted(os.listdir(image_dir)):
+    print(directory)
     class_dirs.append(directory)
 
   
@@ -110,7 +111,22 @@ def create_image_lists_kfold(image_dir, num_folds):
       }
       current_fold += 1
     save_testing_slides = False
+  
+  #To enforce class balance
+  for fold in range(len(result_list)):
+    print("here")
+    max_num_training_slides = 0
+    for label_name in result_list[fold].keys():
+      num_training_slides = len(result_list[fold][label_name]['training'])
+    if num_training_slides > max_num_training_slides:
+      max_num_training_slides = num_training_slides
 
+    for label_name in result_list[fold].keys():
+      num_training_slides = len(result_list[fold][label_name]['training'])
+      num_times_to_multiply = max_num_training_slides // num_training_slides - 1
+      for i in range(num_times_to_multiply):
+        result_list[fold][label_name]['training'].extend(result_list[fold][label_name]['training'])
+            
   if os.path.exists(constants.TEST_SLIDE_FOLDER):
       shutil.rmtree(constants.TEST_SLIDE_FOLDER)
 

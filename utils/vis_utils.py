@@ -99,23 +99,9 @@ def classify_whole_slides(
     """
 
     graph = load_graph(model_file)
-    #for v in graph.as_graph_def().node:
-    #    print(v.name)
-    #sys.exit()
     bottleneck_input_name  = "import/input/BottleneckInputPlaceholder"
     output_name = "import/final_result" 
-    #output_name = "import/" + output_layer
-    input_operation = graph.get_operation_by_name(bottleneck_input_name)
     output_operation = graph.get_operation_by_name(output_name)
-    #pos_folder = os.path.join(histogram_folder, "pos")
-    #neg_folder = os.path.join(histogram_folder, "neg")
-
-    #if os.path.exists(histogram_folder):
-    #    shutil.rmtree(histogram_folder)
-    
-    #os.makedirs(histogram_folder)
-    #os.makedirs(pos_folder)
-    #os.makedirs(neg_folder)
 
     if os.path.exists(constants.PATCH_CONFIDENCE_FOLD_SUBFOLDER(fold_number)):
         shutil.rmtree(constants.PATCH_CONFIDENCE_FOLD_SUBFOLDER(fold_number))
@@ -151,7 +137,6 @@ def classify_whole_slides(
             else:
                 continue
 
-            print("Classifying patches for slide " + slide_name)
             test_slide_list_blanks_removed.append(test_slide)
  
             num_large_cell_votes = 0
@@ -172,23 +157,24 @@ def classify_whole_slides(
             if len(full_test_slide_patches) == 0:
                 continue
 
+            print("Classifying patches for slide " + slide_name)
             for patch_path in full_test_slide_patches:
                 bottleneck = load_bottleneck(patch_path)		
-                #img_tensor = read_tensor_from_image_file(patch_path)
-                #img = sess.run(img_tensor)
                 results = sess.run(output_operation.outputs[0], {
                     input_operation.inputs[0]: [bottleneck],
                 })
+
                 results = np.squeeze(results)
                 if results[0] > results[1]:
                     num_large_cell_votes += 1
                 else:
                     num_small_cell_votes += 1
-                large_tumor_cell_confidences.append(results[1])
+
+                large_tumor_cell_confidences.append(results[0])
                 conf_container = Confidence_Container(
                         patch_path=os.path.join(patch_path),
-                        confidence=results[1])
-                patch_name_to_confidence_map[patch_path] = results[1] 
+                        confidence=results[0])
+                patch_name_to_confidence_map[patch_path] = results[0] 
                 confidence_container_list.append(conf_container)
 
             if slide_category == "received_treatment":
@@ -293,7 +279,6 @@ def compute_roc_points(vote_container_list):
     num_total_negatives = 0
     num_total_positives = 0
 
-    #So that our ROC Curve won't miss the top right corner
     for container in vote_container_list:
         threshold = container.percent_pos_votes
         threshold_list.append(threshold)
@@ -387,8 +372,6 @@ def draw_kfold_roc_curve():
     i = 0
     for vote_container_list in fold_vote_container_lists:
         (fpr_list, tpr_list) = compute_roc_points(vote_container_list)
-        print(fpr_list, tpr_list)
-        print(auc(fpr_list, tpr_list))
         tprs.append(interp(mean_fpr, fpr_list, tpr_list))
         tprs[-1][0] = 0.0
         roc_auc = auc(fpr_list, tpr_list)
@@ -552,6 +535,9 @@ def display_slide(slide_patches_path, slide_name_to_patches_map, slide_name_to_t
     """
 
     slide_name = os.path.basename(slide_patches_path)
+    
+    if slide_name not in slide_name_to_patches_map.keys():
+        return
 
     patches_list = slide_name_to_patches_map[slide_name]
     tiled_dims = slide_name_to_tile_dims_map[slide_name]
@@ -603,35 +589,6 @@ def two_dim_confidence_visualization(fold_number):
     
     os.makedirs(constants.HEATMAP_SUBFOLDER(fold_number))
 
-    print("Available Slides:")
-    for slide in test_slide_list:
-        print(slide)
-    """
-    def on_key(event):
-        nonlocal index
-        if event.key == 'left':
-            if index - 1 >= 0:
-                index -= 1
-                slide_patches_path = test_slide_list[index]
-                display_slide(slide_patches_path, slide_name_to_patches_map, slide_name_to_tile_dims_map,
-                        patch_name_to_coords_map, patch_name_to_confidence_map, constants.SLIDE_FILE_DIRECTORY)
-            else:
-                print("Reached beginning of slides: Can't go back any further")
-        elif event.key == 'right':
-            if index < len(test_slide_list) - 1:
-                index += 1
-                slide_patches_path = test_slide_list[index]
-                display_slide(slide_patches_path, slide_name_to_patches_map, slide_name_to_tile_dims_map,
-                        patch_name_to_coords_map, patch_name_to_confidence_map, constants.SLIDE_FILE_DIRECTORY)
-            else:
-                print("Reached end of slides: Can't go any farther forward")
-    fig = plt.figure(frameon = False)
-    fig.canvas.mpl_connect('key_press_event', on_key)
-    
-    """
-    #index = 0
-    #slide_patches_path = test_slide_list[index]
-    print(test_slide_list)
     first_time = True
     for slide_patches_path in test_slide_list:
         display_slide(slide_patches_path, slide_name_to_patches_map, slide_name_to_tile_dims_map,
