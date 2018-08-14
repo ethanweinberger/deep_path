@@ -64,52 +64,43 @@ def create_image_lists_kfold(image_dir, num_folds):
   class_dirs = []
   slide_dirs = []
 
-  for root,dirs,files in os.walk(image_dir):
-    if dirs:
-      class_dirs.append(root)
-    else:
-      slide_dirs.append(root)
+  for directory in os.listdir(image_dir):
+    class_dirs.append(directory)
+
+  
+  slide_names = sorted(os.listdir(os.path.join(image_dir, class_dirs[0])))
+  kf = KFold(n_splits=num_folds, shuffle=True)
+  train_test_split = list(kf.split(slide_names))
   # The root directory comes first, so skip it.
-  is_root_dir = True
+  save_testing_slides = True 
   for class_dir in class_dirs:
-    if is_root_dir:
-      is_root_dir = False
-      continue
     extensions = ['jpg', 'jpeg', 'JPG', 'JPEG']
-    slide_list = []
     dir_name = os.path.basename(class_dir)
-
-    if dir_name == image_dir:
-      continue
-
-    tf.logging.info("Looking for folders in '" + dir_name + "'")
-    file_glob = os.path.join(image_dir, dir_name, '*')
-    slide_list.extend(tf.gfile.Glob(file_glob))
-
-    if not slide_list:
-      tf.logging.warning('No slide directories found')
-      continue
 
     label_name = re.sub(r'[^a-z0-9]+', ' ', dir_name.lower())
     result = collections.OrderedDict()
     
-    kf = KFold(n_splits=num_folds, shuffle=True)
     current_fold = 0
     testing_slides_base_names = []
-    for train, test in kf.split(slide_list):
-      training_slides = np.array(slide_list)[train]
-      testing_slides = np.array(slide_list)[test]    
-      testing_slide_lists[current_fold].extend(testing_slides)
+    for train, test in train_test_split:
+      #We only need to save the testing slide list for ONE class (since we use the
+      #same testing slides across all classes).  Here we save the testing slides
+      #and switch the flag to False later
+      
+      training_slides = np.array(slide_names)[train]
+      testing_slides = np.array(slide_names)[test]    
+      if save_testing_slides:
+        testing_slide_lists[current_fold].extend(testing_slides)
 
       training_images = []
       testing_images = []
 
       for training_slide_name in training_slides:
-        for image in os.listdir(training_slide_name):
+        for image in os.listdir(os.path.join(image_dir, class_dir, training_slide_name)):
           training_images.append(image)
 
       for testing_slide_name in testing_slides:
-        for image in os.listdir(testing_slide_name):
+        for image in os.listdir(os.path.join(image_dir, class_dir, testing_slide_name)):
           testing_images.append(image)  
       
       result_list[current_fold][label_name] = {
@@ -118,6 +109,7 @@ def create_image_lists_kfold(image_dir, num_folds):
         'testing': testing_images,
       }
       current_fold += 1
+    save_testing_slides = False
 
   if os.path.exists(constants.TEST_SLIDE_FOLDER):
       shutil.rmtree(constants.TEST_SLIDE_FOLDER)
@@ -133,7 +125,7 @@ def create_image_lists_kfold(image_dir, num_folds):
 def main(_):
   # Needed to make sure the logging output is visible.
   # See https://github.com/tensorflow/tensorflow/issues/3047
-  tf.logging.set_verbosity(tf.logging.INFO)
+  #tf.logging.set_verbosity(tf.logging.INFO)
 
   if not FLAGS.image_dir:
     tf.logging.error('Must set flag --image_dir.')
@@ -332,7 +324,7 @@ if __name__ == '__main__':
   parser.add_argument(
       '--how_many_training_steps',
       type=int,
-      default=300,
+      default=constants.HOW_MANY_TRAINING_STEPS,
       help='How many training steps to run before ending.'
   )
   parser.add_argument(
@@ -375,7 +367,7 @@ if __name__ == '__main__':
   parser.add_argument(
       '--bottleneck_dir',
       type=str,
-      default='/tmp/bottleneck',
+      default=constants.BOTTLENECK_DIR,
       help='Path to cache bottleneck layer values as files.'
   )
   parser.add_argument(
@@ -388,7 +380,7 @@ if __name__ == '__main__':
   )
   parser.add_argument(
       '--flip_left_right',
-      default=True,
+      default=False,
       help="""\
       Whether to randomly flip half of the training images horizontally.\
       """,
@@ -397,7 +389,7 @@ if __name__ == '__main__':
   parser.add_argument(
       '--random_crop',
       type=int,
-      default=10,
+      default=0,
       help="""\
       A percentage determining how much of a margin to randomly crop off the
       training images.\
@@ -406,7 +398,7 @@ if __name__ == '__main__':
   parser.add_argument(
       '--random_scale',
       type=int,
-      default=10,
+      default=0,
       help="""\
       A percentage determining how much to randomly scale up the size of the
       training images by.\
@@ -415,7 +407,7 @@ if __name__ == '__main__':
   parser.add_argument(
       '--random_brightness',
       type=int,
-      default=10,
+      default=0,
       help="""\
       A percentage determining how much to randomly multiply the training image
       input pixels up or down by.\
@@ -425,7 +417,7 @@ if __name__ == '__main__':
       '--tfhub_module',
       type=str,
       default=(
-          'https://tfhub.dev/google/imagenet/resnet_v2_152/feature_vector/1'),
+          'https://tfhub.dev/google/imagenet/resnet_v2_50/feature_vector/1'),
       help="""\
       Which TensorFlow Hub module to use.
       See https://github.com/tensorflow/hub/blob/r0.1/docs/modules/image.md

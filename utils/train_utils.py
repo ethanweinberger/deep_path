@@ -235,6 +235,19 @@ def create_image_lists(image_dir, testing_percentage):
         'training': training_images,
         'testing': testing_images,
     }
+  max_num_training_images = 0
+  for key in result:
+    num_training_images = len(result[key]['training'])
+    if num_training_images > max_num_training_images:
+      max_num_training_images = num_training_images 
+
+  for key in result:
+    num_training_images = len(result[key]['training'])
+    class_to_max_ratio  = num_training_images / max_num_training_images
+    num_times_to_copy = int(1 / class_to_max_ratio) - 1
+    for time in num_times_to_copy:
+      result[key]['training'].extend(result[key]['training'])
+
   return result
 
 def create_image_lists_kfold(image_dir, num_folds=10):
@@ -960,7 +973,7 @@ def run_final_eval(train_session, module_spec, class_count, image_lists,
     tf.logging.info('=== MISCLASSIFIED TEST IMAGES ===')
     for i, test_filename in enumerate(test_filenames):
       if predictions[i] != test_ground_truth[i]:
-        tf.logging.info('%70s  %s' % (test_filename,
+        print('%70s  %s' % (test_filename,
                                       list(image_lists.keys())[predictions[i]]))
 
 

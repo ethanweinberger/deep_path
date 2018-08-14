@@ -1,4 +1,5 @@
 import argparse
+import math
 import sys
 import math
 import pickle
@@ -55,11 +56,24 @@ def read_tensor_from_image_file(file_name,
     resized_image = tf.image.resize_bilinear(image_4d, resized_shape_as_int)
    
     return resized_image
+
+def load_bottleneck(patch_path):
+    split_path = patch_path.split("/") 
+    category = split_path[4]
+    image_name = split_path[-1]
+    bottleneck_suffix = "_https~tfhub.dev~google~imagenet~resnet_v2_50~feature_vector~1.txt"
+    bottleneck_path = os.path.join(constants.BOTTLENECK_DIR, category, image_name + bottleneck_suffix)
+    
+    with open(bottleneck_path, 'r') as bottleneck_file:
+        bottleneck_string = bottleneck_file.read()
+        bottleneck_values = [float(x) for x in bottleneck_string.split(',')]
+
+    return bottleneck_values
     
 def classify_whole_slides(
         test_slide_list,
         model_file, 
-        label_file, 
+        label_file,
         input_layer, 
         output_layer,
         histogram_folder,
@@ -72,8 +86,8 @@ def classify_whole_slides(
 
     Args:
         model_file (String): Location of saved network model file
-        label_file (String): Location of csv file with true slide labels
         test_slide_list_path (String): Path to pickle of list of slides held out for testing the network
+        label_file (String): Path to csv file with outcome labels
         input_layer (String): Name of input layer in saved model file
         output_layer (String): Name of output layer in saved moddel file
         histogram_folder (String): Directory in which to save histogram plots
@@ -85,19 +99,23 @@ def classify_whole_slides(
     """
 
     graph = load_graph(model_file)
-    input_name = "import/" + input_layer
-    output_name = "import/" + output_layer
-    input_operation = graph.get_operation_by_name(input_name)
+    #for v in graph.as_graph_def().node:
+    #    print(v.name)
+    #sys.exit()
+    bottleneck_input_name  = "import/input/BottleneckInputPlaceholder"
+    output_name = "import/final_result" 
+    #output_name = "import/" + output_layer
+    input_operation = graph.get_operation_by_name(bottleneck_input_name)
     output_operation = graph.get_operation_by_name(output_name)
-    pos_folder = os.path.join(histogram_folder, "pos")
-    neg_folder = os.path.join(histogram_folder, "neg")
+    #pos_folder = os.path.join(histogram_folder, "pos")
+    #neg_folder = os.path.join(histogram_folder, "neg")
 
-    if os.path.exists(histogram_folder):
-        shutil.rmtree(histogram_folder)
+    #if os.path.exists(histogram_folder):
+    #    shutil.rmtree(histogram_folder)
     
-    os.makedirs(histogram_folder)
-    os.makedirs(pos_folder)
-    os.makedirs(neg_folder)
+    #os.makedirs(histogram_folder)
+    #os.makedirs(pos_folder)
+    #os.makedirs(neg_folder)
 
     if os.path.exists(constants.PATCH_CONFIDENCE_FOLD_SUBFOLDER(fold_number)):
         shutil.rmtree(constants.PATCH_CONFIDENCE_FOLD_SUBFOLDER(fold_number))
@@ -110,14 +128,7 @@ def classify_whole_slides(
     
     with tf.Session(graph = graph) as sess:
         test_slide_list = load_pickle_from_disk(test_slide_list) 
-        
-        slides_classified_correctly = 0
-        slides_examined = 0
-        num_positives_classified_correctly = 0
-        num_false_positives = 0
-
-        num_true_positives = 0
-        num_true_negatives = 0
+        test_slide_list_blanks_removed = []
         
         df = pd.read_csv(label_file)
         pos_slide_confidence_lists = {}
@@ -128,50 +139,67 @@ def classify_whole_slides(
 
         for test_slide in test_slide_list:
             slide_name = os.path.basename(test_slide)
-            print("Classifying patches for slide " + slide_name)
-            slide_label_row = df.loc[df.specnum_formatted == slide_name]
+            slide_label_row = df.loc[df.patient_code == slide_name]
             if slide_label_row.empty:
                 continue
 
-            slide_label = slide_label_row.iloc[0].her2_ihc
-            if slide_label == 0.0 or slide_label == 1.0:
-                slide_category = "neg"
-            elif slide_label == 2.0 or slide_label == 3.0:
-                slide_category = "pos"
+            slide_label = slide_label_row.iloc[0].aggressive_chemo
+            if slide_label == "YES":
+                slide_category = "received_treatment"
+            elif slide_label == "NO":
+                slide_category = "no_treatment"
             else:
                 continue
+
+            print("Classifying patches for slide " + slide_name)
+            test_slide_list_blanks_removed.append(test_slide)
  
-            num_neg_votes = 0
-            num_pos_votes = 0
-            her2_plus_confidences = []
-            for file_name in os.listdir(test_slide):
-                patch_name = os.path.join(test_slide, file_name)
-                img_tensor = read_tensor_from_image_file(patch_name)
-                img = sess.run(img_tensor)
+            num_large_cell_votes = 0
+            num_small_cell_votes = 0
+            large_tumor_cell_confidences = []
+
+            small_cell_patch_dir = os.path.join(constants.SMALL_CELL_PATCHES, slide_name)
+            large_cell_patch_dir = os.path.join(constants.LARGE_CELL_PATCHES, slide_name)
+
+            small_cell_patches = os.listdir(small_cell_patch_dir)
+            small_cell_patches_full_path = [os.path.join(small_cell_patch_dir, x) for x in small_cell_patches]
+
+            large_cell_patches = os.listdir(large_cell_patch_dir)
+            large_cell_patches_full_path = [os.path.join(large_cell_patch_dir, x) for x in large_cell_patches]
+
+            full_test_slide_patches = small_cell_patches_full_path + large_cell_patches_full_path
+
+            if len(full_test_slide_patches) == 0:
+                continue
+
+            for patch_path in full_test_slide_patches:
+                bottleneck = load_bottleneck(patch_path)		
+                #img_tensor = read_tensor_from_image_file(patch_path)
+                #img = sess.run(img_tensor)
                 results = sess.run(output_operation.outputs[0], {
-                    input_operation.outputs[0]: img 
+                    input_operation.inputs[0]: [bottleneck],
                 })
                 results = np.squeeze(results)
                 if results[0] > results[1]:
-                    num_neg_votes += 1
+                    num_large_cell_votes += 1
                 else:
-                    num_pos_votes += 1
-                her2_plus_confidences.append(results[1])
+                    num_small_cell_votes += 1
+                large_tumor_cell_confidences.append(results[1])
                 conf_container = Confidence_Container(
-                        patch_path=os.path.join(test_slide, file_name),
+                        patch_path=os.path.join(patch_path),
                         confidence=results[1])
-                patch_name_to_confidence_map[patch_name] = results[1] 
+                patch_name_to_confidence_map[patch_path] = results[1] 
                 confidence_container_list.append(conf_container)
 
-            if slide_category == "pos":
-                pos_slide_confidence_lists[slide_name] = her2_plus_confidences
+            if slide_category == "received_treatment":
+                pos_slide_confidence_lists[slide_name] = large_tumor_cell_confidences
                 pos_slide_name_list.append(slide_name)
-            elif slide_category == "neg":
-                neg_slide_confidence_lists[slide_name] = her2_plus_confidences
+            elif slide_category == "no_treatment":
+                neg_slide_confidence_lists[slide_name] = large_tumor_cell_confidences
                 neg_slide_name_list.append(slide_name)
 
-            total_votes = num_pos_votes + num_neg_votes
-            percent_pos_votes = num_pos_votes / total_votes
+            total_votes = num_large_cell_votes + num_small_cell_votes
+            percent_pos_votes = num_large_cell_votes / total_votes
     
             current_slide_vote_container = Vote_Container(
                     percent_pos_votes=percent_pos_votes,
@@ -182,6 +210,8 @@ def classify_whole_slides(
         
     confidence_container_list.sort(key = lambda x: x.confidence)
 
+    write_pickle_to_disk(os.path.join(constants.TEST_SLIDE_FOLDER, "testing_slide_list_" + str(fold_number)),
+        test_slide_list_blanks_removed)
     write_pickle_to_disk(constants.CONFIDENCE_CONTAINER_LIST(fold_number), confidence_container_list)
     write_pickle_to_disk(constants.PATCH_NAME_TO_CONFIDENCE_MAP(fold_number), patch_name_to_confidence_map)
     write_pickle_to_disk(constants.POS_SLIDE_CONFIDENCE_LISTS(fold_number), pos_slide_confidence_lists)
@@ -264,14 +294,13 @@ def compute_roc_points(vote_container_list):
     num_total_positives = 0
 
     #So that our ROC Curve won't miss the top right corner
-    threshold_list.append(0.0)
     for container in vote_container_list:
         threshold = container.percent_pos_votes
         threshold_list.append(threshold)
 
-        if container.slide_category == "neg":
+        if container.slide_category == "no_treatment":
             num_total_negatives += 1
-        elif container.slide_category == "pos":
+        elif container.slide_category == "received_treatment":
             num_total_positives += 1
         else:
             raise ValueError("Invalid Slide Category")
@@ -286,17 +315,25 @@ def compute_roc_points(vote_container_list):
         num_true_positives  = 0
 
         for container in vote_container_list:
-            if container.slide_category == "neg" and container.percent_pos_votes > threshold:
+            if container.slide_category == "no_treatment" and container.percent_pos_votes > threshold:
                 num_false_positives += 1
-            elif container.slide_category == "pos" and container.percent_pos_votes > threshold:
+            elif container.slide_category == "received_treatment" and container.percent_pos_votes > threshold:
                 num_true_positives += 1
 
-        false_positive_rate = num_false_positives / num_total_negatives
+        if num_total_negatives > 0:
+            false_positive_rate = num_false_positives / num_total_negatives
+        else:
+            false_positive_rate = 0
         false_positive_rate_list.append(false_positive_rate)
             
-        true_positive_rate = num_true_positives / num_total_positives             
+        if num_total_positives > 0:
+            true_positive_rate = num_true_positives / num_total_positives             
+        else:
+            true_positive_rate = 1.0
         true_positive_rate_list.append(true_positive_rate)
     
+    false_positive_rate_list.append(1.0)
+    true_positive_rate_list.append(1.0)
     roc_point_lists = (false_positive_rate_list, true_positive_rate_list)
     return roc_point_lists
 
@@ -350,19 +387,21 @@ def draw_kfold_roc_curve():
     i = 0
     for vote_container_list in fold_vote_container_lists:
         (fpr_list, tpr_list) = compute_roc_points(vote_container_list)
+        print(fpr_list, tpr_list)
+        print(auc(fpr_list, tpr_list))
         tprs.append(interp(mean_fpr, fpr_list, tpr_list))
         tprs[-1][0] = 0.0
         roc_auc = auc(fpr_list, tpr_list)
         aucs.append(roc_auc)
     
-        plt.plot(fpr_list, tpr_list, lw=1, alpha=0.3,
+        plt.plot(fpr_list, tpr_list, lw=1, alpha=1,
              label='ROC fold %d (AUC = %0.2f)' % (i, roc_auc))
         i += 1
 
     plt.plot([0, 1], [0, 1], linestyle='--', lw=2, color='r',
          label='Luck', alpha=.8)
 
-    
+     
     mean_tpr = np.mean(tprs, axis=0)
     mean_tpr[-1] = 1.0
     mean_auc = auc(mean_fpr, mean_tpr)
@@ -383,6 +422,7 @@ def draw_kfold_roc_curve():
     plt.ylabel('True Positive Rate')
     plt.title('K-fold Receiver Operating Characteristic')
     plt.legend(loc="lower right")
+    
     plt.savefig("k-fold_roc.png")
 
 
@@ -481,8 +521,18 @@ def create_extent_from_thumbnail(thumbnail):
     extent = (xmin, xmax, ymin, ymax)
     return extent
 
+
+def transparent_cmap(cmap, N=255):
+    "Copy colormap and set alpha values"
+
+    mycmap = cmap
+    mycmap._init()
+    mycmap._lut[:,-1] = np.append(np.linspace(0.8, 0, (N+4)//2), np.linspace(0, 0.8, math.ceil((N+4)/2)))
+    return mycmap
+
 def display_slide(slide_patches_path, slide_name_to_patches_map, slide_name_to_tile_dims_map, 
-        patch_name_to_coords_map, patch_name_to_confidence_map, slide_top_level_dir, first_time=False):
+        patch_name_to_coords_map, patch_name_to_confidence_map, slide_top_level_dir, first_time=False,
+        fold_number=0):
     """
     Helper function for two_dim_confidence_visualization.
     Given the path to a slide, this function updates 
@@ -502,35 +552,38 @@ def display_slide(slide_patches_path, slide_name_to_patches_map, slide_name_to_t
     """
 
     slide_name = os.path.basename(slide_patches_path)
-    slide_category_folder = os.path.basename(os.path.dirname(slide_patches_path))
-    slide_category = "HER2+" if slide_category_folder == "her2_pos" else "HER2-"
 
     patches_list = slide_name_to_patches_map[slide_name]
     tiled_dims = slide_name_to_tile_dims_map[slide_name]
 
-    confidence_array = np.zeros(tiled_dims)
+    confidence_array = np.full(tiled_dims, 0.5)
 
     for patch in patches_list:
+        if "stroma" in patch:
+            continue
         patch_coords = patch_name_to_coords_map[patch]
         patch_confidence = patch_name_to_confidence_map[patch + ".jpg"]
-        
         confidence_array[patch_coords] = patch_confidence
 
-    slide_path = os.path.join(slide_top_level_dir, slide_name, "Scan1", slide_name + "_Scan1.qptiff")
+    slide_path = os.path.join(slide_top_level_dir, slide_name + ".svs")
     thumbnail = get_slide_thumbnail(slide_path, tiled_dims[0]*100, tiled_dims[1]*100)
     thumbnail = np.array(thumbnail)
     extent = create_extent_from_thumbnail(thumbnail)
 
+    cmap = transparent_cmap(plt.cm.seismic)
+
     plt.imshow(thumbnail, extent=extent)
-    plt.title(slide_name + " (" + slide_category + ")")
-    plt.imshow(confidence_array, alpha=.2, extent=extent)
+    plt.title(slide_name)
+    plt.imshow(confidence_array, alpha=1.0, extent=extent, cmap=cmap)
 
     if first_time:
-        cbar = plt.colorbar()
-        cbar.set_label("Confidence", labelpad=15, rotation=270)
+        cbar = plt.colorbar(ticks=[0, 1])
+        cbar.ax.set_yticklabels(["Small Cell", "Large Cell"])
+        #cbar.set_label("Confidence", labelpad=15, rotation=270)
 
     plt.clim(vmin=0, vmax=1.0)
-    plt.show() if first_time else plt.draw()
+    #plt.show() if first_time else plt.draw()
+    plt.savefig(os.path.join(constants.HEATMAP_SUBFOLDER(fold_number),slide_name))
 
 
 def two_dim_confidence_visualization(fold_number):
@@ -544,7 +597,16 @@ def two_dim_confidence_visualization(fold_number):
     patch_name_to_confidence_map = load_pickle_from_disk(constants.PATCH_NAME_TO_CONFIDENCE_MAP(fold_number))
     test_slide_list              = load_pickle_from_disk(os.path.join(constants.TEST_SLIDE_FOLDER,
         constants.TEST_SLIDE_LIST + "_" + str(fold_number)))
- 
+
+    if os.path.exists(constants.HEATMAP_SUBFOLDER(fold_number)):
+        shutil.rmtree(constants.HEATMAP_SUBFOLDER(fold_number))
+    
+    os.makedirs(constants.HEATMAP_SUBFOLDER(fold_number))
+
+    print("Available Slides:")
+    for slide in test_slide_list:
+        print(slide)
+    """
     def on_key(event):
         nonlocal index
         if event.key == 'left':
@@ -563,14 +625,20 @@ def two_dim_confidence_visualization(fold_number):
                         patch_name_to_coords_map, patch_name_to_confidence_map, constants.SLIDE_FILE_DIRECTORY)
             else:
                 print("Reached end of slides: Can't go any farther forward")
-
     fig = plt.figure(frameon = False)
     fig.canvas.mpl_connect('key_press_event', on_key)
     
-    index = 0
-    slide_patches_path = test_slide_list[index]
-    display_slide(slide_patches_path, slide_name_to_patches_map, slide_name_to_tile_dims_map,
-            patch_name_to_coords_map, patch_name_to_confidence_map, constants.SLIDE_FILE_DIRECTORY, first_time=True)
+    """
+    #index = 0
+    #slide_patches_path = test_slide_list[index]
+    print(test_slide_list)
+    first_time = True
+    for slide_patches_path in test_slide_list:
+        display_slide(slide_patches_path, slide_name_to_patches_map, slide_name_to_tile_dims_map,
+                patch_name_to_coords_map, patch_name_to_confidence_map, constants.SLIDE_FILE_DIRECTORY, first_time,
+                fold_number)
+        if first_time:
+            first_time = False
     
 def create_visualization_helper_files():
     """

@@ -42,7 +42,7 @@ def get_slide_thumbnail(path, height, width):
     thumbnail = osr.get_thumbnail((height, width))
     return thumbnail
 
-def get_patches_from_slide(slide, tile_size=1024, overlap=0, limit_bounds=False):
+def get_patches_from_slide(slide, tile_size=constants.PATCH_SIZE, overlap=0, limit_bounds=False):
     """ 
     Splits an OpenSlide object into nonoverlapping patches
 
@@ -79,7 +79,60 @@ def get_patches_from_slide(slide, tile_size=1024, overlap=0, limit_bounds=False)
             x += 1
         y += 1
         x = 0
-    return (patches, coordinate_list, tiled_dims) 
+    return (patches, coordinate_list, tiled_dims)
+
+def balance_classes(image_dir):
+    """
+    Given the top level directory pointing to where our image class folders live,
+    attempts to balance the number of images belonging to each class
+
+    Args:
+        image_dir (String): Path to top-level directory
+    Returns:
+        None (output saved to disk)
+    """
+
+    class_dirs = []
+
+    for directory in os.listdir(image_dir):
+        class_dirs.append(os.path.join(image_dir, directory))
+    
+    class_count_list = []
+    for class_directory in class_dirs:
+        class_count = 0
+        for patient in os.listdir(class_directory):
+            full_patient_dir = os.path.join(class_directory, patient)
+            class_count += len(os.listdir(full_patient_dir))
+        class_count_list.append(class_count)
+
+    max_class_count = 0
+    most_represented_class = "" 
+    for image_class, class_count in zip(class_dirs, class_count_list):
+        if class_count > max_class_count:
+            max_class_count = class_count
+            most_represented_class = image_class
+    
+    num_times_to_copy_list = []
+    for class_count in class_count_list:
+        ratio = class_count / max_class_count
+        num_times_to_copy = int(1 / ratio) - 1
+        num_times_to_copy_list.append(num_times_to_copy)
+
+    for (image_class, num_copy_rounds) in zip(class_dirs, num_times_to_copy_list):
+        slide_list = os.listdir(image_class)
+        slide_to_patch_names = []
+        for slide in slide_list:
+            slide_dir = os.path.join(image_class, slide)
+            slide_to_patch_names.append(os.listdir(slide_dir)) 
+
+        for i in range(num_copy_rounds): 
+            for (j, slide) in enumerate(slide_list):
+                slide_dir = os.path.join(image_class, slide)
+                for file_name in slide_to_patch_names[j]:
+                    full_file_path = os.path.join(slide_dir, file_name)
+                    file_path_no_extension, extension = os.path.splitext(full_file_path)
+                    copy_name = file_path_no_extension + "_" + str(i) + extension
+                    shutil.copy(full_file_path, copy_name)
 
 def construct_training_dataset(top_level_directory, 
         file_extension, 
@@ -126,17 +179,6 @@ def construct_training_dataset(top_level_directory,
 
                 print("Splitting " + slide_name)
 
-                #if slide_label_row.empty:
-                #    continue
-                
-                #slide_label = slide_label_row.iloc[0].her2_ihc
-                #if slide_label == 0.0 or slide_label == 1.0:
-                #    class_folder = her2_neg_folder
-                #elif slide_label == 2.0 or slide_label == 3.0:
-                #    class_folder = her2_pos_folder
-                #else:
-                #    continue #In case we have an empty or malformed cell
-
                 slide_stroma_dir = os.path.join(stroma_folder, slide_name)
                 slide_large_cells_dir = os.path.join(large_tumor_cells_folder, slide_name)
                 slide_small_cells_dir = os.path.join(small_tumor_cells_folder, slide_name)
@@ -146,12 +188,16 @@ def construct_training_dataset(top_level_directory,
                 os.makedirs(slide_small_cells_dir)
 
                 slide = load_slide(full_path)
+
                 stroma_path_list = construct_annotation_path_list(slide_name, os.path.join(annotation_csv_directory,
                     "stroma_csv_files"))
                 large_cells_path_list = construct_annotation_path_list(slide_name, os.path.join(annotation_csv_directory,
                     annotation_csv_directory, "large_cell_tumor_csv_files")) 
                 small_cells_path_list = construct_annotation_path_list(slide_name, os.path.join(annotation_csv_directory,
                     annotation_csv_directory, "small_cell_tumor_csv_files"))
+
+                if stroma_path_list == [] and large_cells_path_list == [] and small_cells_path_list == []:
+                    continue
 
                 (patches, coordinate_list, tiled_dims) = get_patches_from_slide(slide)
                 counter = 0
@@ -181,7 +227,7 @@ def construct_training_dataset(top_level_directory,
                 print("Total patches for " + slide_name + ": " + str(counter))
     
     if os.path.exists(constants.VISUALIZATION_HELPER_FILE_FOLDER):
-        shutil.rmtree(constants.VISUALIZATION_HELPERS_FILE_FOLDER)
+        shutil.rmtree(constants.VISUALIZATION_HELPER_FILE_FOLDER)
 
     os.makedirs(constants.VISUALIZATION_HELPER_FILE_FOLDER)
 
@@ -202,6 +248,9 @@ def construct_annotation_path_list(slide_name, annotation_base_path):
     """
 
     full_annotation_dir = os.path.join(annotation_base_path, slide_name)
+    if not os.path.exists(full_annotation_dir):
+        return []
+    
     annotation_list = []
     
     for filename in os.listdir(full_annotation_dir):
@@ -270,7 +319,7 @@ def patch_in_paths(patch, path_list):
 
     in_path = False
     for path in path_list:
-        if patch.on_annotation_boundary(path):
+        if patch.in_annotation(path):
             in_path = True
 
     return in_path
