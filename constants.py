@@ -1,7 +1,7 @@
 import os
 
 #Training Parameters
-NUM_FOLDS = 2
+NUM_FOLDS = 3
 
 #Data directories
 SLIDE_FILE_DIRECTORY     = "/data/ethan/Marrow_Slides"
@@ -15,7 +15,7 @@ LABEL_FILE               = "/data/ethan/lymphoma_case_codes.csv"
 ANNOTATION_CSV_DIRECTORY = "/data/ethan/marrow_annotation_csv_files/" 
 
 #Constants for pre-trained models
-HOW_MANY_TRAINING_STEPS = 100
+HOW_MANY_TRAINING_STEPS = 50
 BOTTLENECK_DIR          = "/tmp/bottleneck_" + str(PATCH_SIZE)
 MODEL_FILE_FOLDER       = "./output_graph_files_" + str(PATCH_SIZE)
 INPUT_LAYER             = "Placeholder"

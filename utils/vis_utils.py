@@ -9,6 +9,7 @@ import tensorflow as tf
 import pandas as pd
 import pickle
 import shutil
+import matplotlib
 import matplotlib.pyplot as plt
 import constants
 from sklearn.metrics import auc
@@ -69,9 +70,45 @@ def load_bottleneck(patch_path):
         bottleneck_values = [float(x) for x in bottleneck_string.split(',')]
 
     return bottleneck_values
+
+def get_slide_label(slide_path, dataframe):
+    slide_name  = os.path.basename(slide_path)
+    slide_row   = df.loc[df.patient_code == slide_name]
+    slide_label = slide_row.iloc[0].aggressive_chemo
+    return slide_label
+
+def slide_has_label(slide_path, label_list, dataframe):
+    slide_label = find_slide_label(slide_path, dataframe)
+    return true if slide_label in label_list else false
+
+def get_patch_confidence(patch_path):
+    bottleneck = load_bottleneck(patch_path)		
+    results = sess.run(output_operation.outputs[0], {
+        input_operation.inputs[0]: [bottleneck],
+    })
+
+    results = np.squeeze(results)
+    return results[0]
+
+def get_slide_patch_confidences(test_slide):
+    small_cell_patch_dir = os.path.join(constants.SMALL_CELL_PATCHES, slide_name)
+    large_cell_patch_dir = os.path.join(constants.LARGE_CELL_PATCHES, slide_name)
+
+    small_cell_patches = os.listdir(small_cell_patch_dir)
+    small_cell_patches_full_path = [os.path.join(small_cell_patch_dir, x) for x in small_cell_patches]
+
+    large_cell_patches = os.listdir(large_cell_patch_dir)
+    large_cell_patches_full_path = [os.path.join(large_cell_patch_dir, x) for x in large_cell_patches]
+
+    full_test_slide_patches = small_cell_patches_full_path + large_cell_patches_full_path
+
+    print("Classifying patches for slide " + slide_name)
+    patch_confidences    = filter(lambda x: get_patch_confidence(x), full_test_slide_patches) 
+    return (full_test_slide_patches, patch_confidences)
     
+
 def classify_whole_slides(
-        test_slide_list,
+        test_slide_list_path,
         model_file, 
         label_file,
         input_layer, 
@@ -97,10 +134,11 @@ def classify_whole_slides(
             objects containing the number of positive and negative votes
             for each slide
     """
-
+    #TODO: Continue rewriting function from Github
     graph = load_graph(model_file)
     bottleneck_input_name  = "import/input/BottleneckInputPlaceholder"
     output_name = "import/final_result" 
+    input_operation = graph.get_operation_by_name(bottleneck_input_name)
     output_operation = graph.get_operation_by_name(output_name)
 
     if os.path.exists(constants.PATCH_CONFIDENCE_FOLD_SUBFOLDER(fold_number)):
@@ -113,97 +151,17 @@ def classify_whole_slides(
     patch_name_to_confidence_map = {}
     
     with tf.Session(graph = graph) as sess:
-        test_slide_list = load_pickle_from_disk(test_slide_list) 
-        test_slide_list_blanks_removed = []
-        
+        valid_label_list = ["YES", "NO"]
         df = pd.read_csv(label_file)
-        pos_slide_confidence_lists = {}
-        neg_slide_confidence_lists = {}
 
-        pos_slide_name_list = []
-        neg_slide_name_list = []
+        test_slide_list     = filter(lambda x: slide_has_label(x, valid_label_list, df),
+                                  load_pickle_from_disk(test_slide_list_path)) 
+        pos_slide_name_list = filter(lambda x: get_slide_label(x, df) == "YES", test_slide_list)
+        neg_slide_name_list = filter(lambda x: get_slide_label(x, df) == "NO", test_slide_list)
 
-        for test_slide in test_slide_list:
-            slide_name = os.path.basename(test_slide)
-            slide_label_row = df.loc[df.patient_code == slide_name]
-            if slide_label_row.empty:
-                continue
+        (pos_slide_patch_lists, pos_slide_patch_confidence_lists) = map(lambda x: get_slide_patch_confidences(x), pos_slide_name_list)  
+        (neg_slide_patch_lists, neg_slide_patch_confidence_lists) = map(lambda x: get_slide_patch_confidences(x), neg_slide_name_list)
 
-            slide_label = slide_label_row.iloc[0].aggressive_chemo
-            if slide_label == "YES":
-                slide_category = "received_treatment"
-            elif slide_label == "NO":
-                slide_category = "no_treatment"
-            else:
-                continue
-
-            test_slide_list_blanks_removed.append(test_slide)
- 
-            num_large_cell_votes = 0
-            num_small_cell_votes = 0
-            large_tumor_cell_confidences = []
-
-            small_cell_patch_dir = os.path.join(constants.SMALL_CELL_PATCHES, slide_name)
-            large_cell_patch_dir = os.path.join(constants.LARGE_CELL_PATCHES, slide_name)
-
-            small_cell_patches = os.listdir(small_cell_patch_dir)
-            small_cell_patches_full_path = [os.path.join(small_cell_patch_dir, x) for x in small_cell_patches]
-
-            large_cell_patches = os.listdir(large_cell_patch_dir)
-            large_cell_patches_full_path = [os.path.join(large_cell_patch_dir, x) for x in large_cell_patches]
-
-            full_test_slide_patches = small_cell_patches_full_path + large_cell_patches_full_path
-
-            if len(full_test_slide_patches) == 0:
-                continue
-
-            print("Classifying patches for slide " + slide_name)
-            for patch_path in full_test_slide_patches:
-                bottleneck = load_bottleneck(patch_path)		
-                results = sess.run(output_operation.outputs[0], {
-                    input_operation.inputs[0]: [bottleneck],
-                })
-
-                results = np.squeeze(results)
-                if results[0] > results[1]:
-                    num_large_cell_votes += 1
-                else:
-                    num_small_cell_votes += 1
-
-                large_tumor_cell_confidences.append(results[0])
-                conf_container = Confidence_Container(
-                        patch_path=os.path.join(patch_path),
-                        confidence=results[0])
-                patch_name_to_confidence_map[patch_path] = results[0] 
-                confidence_container_list.append(conf_container)
-
-            if slide_category == "received_treatment":
-                pos_slide_confidence_lists[slide_name] = large_tumor_cell_confidences
-                pos_slide_name_list.append(slide_name)
-            elif slide_category == "no_treatment":
-                neg_slide_confidence_lists[slide_name] = large_tumor_cell_confidences
-                neg_slide_name_list.append(slide_name)
-
-            total_votes = num_large_cell_votes + num_small_cell_votes
-            percent_pos_votes = num_large_cell_votes / total_votes
-    
-            current_slide_vote_container = Vote_Container(
-                    percent_pos_votes=percent_pos_votes,
-                    slide_name=slide_name,
-                    slide_category=slide_category)
-
-            vote_container_list.append(current_slide_vote_container)
-        
-    confidence_container_list.sort(key = lambda x: x.confidence)
-
-    write_pickle_to_disk(os.path.join(constants.TEST_SLIDE_FOLDER, "testing_slide_list_" + str(fold_number)),
-        test_slide_list_blanks_removed)
-    write_pickle_to_disk(constants.CONFIDENCE_CONTAINER_LIST(fold_number), confidence_container_list)
-    write_pickle_to_disk(constants.PATCH_NAME_TO_CONFIDENCE_MAP(fold_number), patch_name_to_confidence_map)
-    write_pickle_to_disk(constants.POS_SLIDE_CONFIDENCE_LISTS(fold_number), pos_slide_confidence_lists)
-    write_pickle_to_disk(constants.NEG_SLIDE_CONFIDENCE_LISTS(fold_number), neg_slide_confidence_lists)
-
-    return vote_container_list
 
 
 def draw_confidence_histograms(fold_number, slide_category, num_graphs_per_row=3):
@@ -422,12 +380,53 @@ def display_confidence_container(confidence_container):
         None (output is visual)
     """
 
+    matplotlib.rcParams['mathtext.fontset'] = 'stix'
+    matplotlib.rcParams['font.family'] = 'STIXGeneral'
     img = Image.open(confidence_container.patch_path)
     confidence = confidence_container.confidence
 
     plt.title("Confidence: " + str(confidence))
     plt.imshow(img)
     plt.draw()
+
+def multi_patch_figure(fold_number):#, low_conf_index=, mid_conf_index, high_conf_index):
+    confidence_container_list = load_pickle_from_disk(constants.CONFIDENCE_CONTAINER_LIST(fold_number))
+    low_conf_index = 0
+    mid_conf_index = 205
+    high_conf_index = int(len(confidence_container_list) * (9/10))
+
+    if len(confidence_container_list) == 0:
+        print("No containers found in confidence container list. Exiting visualization.")
+        sys.exit()
+
+    low_conf_container = confidence_container_list[low_conf_index]
+    print(low_conf_container.patch_path)
+    mid_conf_container = confidence_container_list[mid_conf_index]
+    print(mid_conf_container.patch_path)
+    high_conf_container = confidence_container_list[high_conf_index]
+    print(high_conf_container.patch_path)
+
+    low_conf_img = Image.open(low_conf_container.patch_path)
+    mid_conf_img = Image.open(mid_conf_container.patch_path)
+    high_conf_img = Image.open(high_conf_container.patch_path)
+
+    matplotlib.rcParams['mathtext.fontset'] = 'stix'
+    matplotlib.rcParams['font.family'] = 'STIXGeneral'
+
+    fig, axes = plt.subplots(1,3)
+    axes[0].imshow(low_conf_img)
+    axes[0].set_title("Large Cell \n Probability: %.3f" % low_conf_container.confidence)
+    axes[0].axis('off')
+    axes[1].imshow(mid_conf_img)
+    axes[1].set_title("LC Conf: %.2f" % mid_conf_container.confidence)
+    axes[1].set_title("Large Cell \n Probability: %.3f" % mid_conf_container.confidence)
+    axes[1].axis('off')
+    axes[2].imshow(high_conf_img)
+    axes[2].set_title("LC Conf: %.2f" % high_conf_container.confidence)
+    axes[2].set_title("Large Cell \n Probability: %.3f" % high_conf_container.confidence)
+    axes[2].axis('off')
+
+    plt.show()
 
 def visualize_confidence_containers(fold_number):
     """
@@ -451,6 +450,7 @@ def visualize_confidence_containers(fold_number):
     current_container = confidence_container_list[index]
     img = Image.open(current_container.patch_path)
     confidence = current_container.confidence
+
 
     def on_key(event):
         nonlocal index
@@ -483,6 +483,7 @@ def visualize_confidence_containers(fold_number):
     fig.canvas.mpl_connect('key_press_event', on_key)
     plt.title("Confidence: " + str(confidence))
     plt.imshow(img)
+    plt.axis('off')
     plt.show()
 
 def create_extent_from_thumbnail(thumbnail):
@@ -562,14 +563,12 @@ def display_slide(slide_patches_path, slide_name_to_patches_map, slide_name_to_t
     plt.title(slide_name)
     plt.imshow(confidence_array, alpha=1.0, extent=extent, cmap=cmap)
 
-    if first_time:
-        cbar = plt.colorbar(ticks=[0, 1])
-        cbar.ax.set_yticklabels(["Small Cell", "Large Cell"])
-        #cbar.set_label("Confidence", labelpad=15, rotation=270)
-
     plt.clim(vmin=0, vmax=1.0)
-    #plt.show() if first_time else plt.draw()
+    cbar = plt.colorbar(ticks=[0, 1])
+    cbar.ax.set_yticklabels(["Small Cell", "Large Cell"])
+
     plt.savefig(os.path.join(constants.HEATMAP_SUBFOLDER(fold_number),slide_name))
+    plt.close()
 
 
 def two_dim_confidence_visualization(fold_number):
