@@ -65,13 +65,13 @@ def create_image_lists_kfold(image_dir, num_folds):
   slide_dirs = []
 
   for directory in sorted(os.listdir(image_dir)):
-    print(directory)
     class_dirs.append(directory)
 
   
   slide_names = sorted(os.listdir(os.path.join(image_dir, class_dirs[0])))
   kf = KFold(n_splits=num_folds, shuffle=True)
   train_test_split = list(kf.split(slide_names))
+  print(train_test_split)
   # The root directory comes first, so skip it.
   save_testing_slides = True 
   for class_dir in class_dirs:
@@ -114,7 +114,6 @@ def create_image_lists_kfold(image_dir, num_folds):
   
   #To enforce class balance
   for fold in range(len(result_list)):
-    print("here")
     max_num_training_slides = 0
     for label_name in result_list[fold].keys():
       num_training_slides = len(result_list[fold][label_name]['training'])
@@ -141,7 +140,7 @@ def create_image_lists_kfold(image_dir, num_folds):
 def main(_):
   # Needed to make sure the logging output is visible.
   # See https://github.com/tensorflow/tensorflow/issues/3047
-  #tf.logging.set_verbosity(tf.logging.INFO)
+  tf.logging.set_verbosity(tf.logging.INFO)
 
   if not FLAGS.image_dir:
     tf.logging.error('Must set flag --image_dir.')
