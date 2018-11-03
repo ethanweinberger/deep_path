@@ -12,6 +12,7 @@ import shutil
 import matplotlib
 import matplotlib.pyplot as plt
 import constants
+import itertools
 from sklearn.metrics import auc
 from scipy import interp
 from utils.slide_utils import get_slide_thumbnail
@@ -24,7 +25,9 @@ Vote_Container = namedtuple("Vote_Container",
         ["percent_pos_votes",
         "slide_name",
         "slide_category"])
-Confidence_Container = namedtuple("Confidence_Container",
+
+
+PatchAndConfidence = namedtuple("PatchAndConfidence",
         ["patch_path",
         "confidence"])
 
@@ -73,15 +76,23 @@ def load_bottleneck(patch_path):
 
 def get_slide_label(slide_path, dataframe):
     slide_name  = os.path.basename(slide_path)
-    slide_row   = df.loc[df.patient_code == slide_name]
-    slide_label = slide_row.iloc[0].aggressive_chemo
+    try: 
+        slide_row   = dataframe.loc[dataframe.patient_code == slide_name]
+        slide_label = slide_row.iloc[0].aggressive_chemo
+    except:
+        slide_label = ""
     return slide_label
 
 def slide_has_label(slide_path, label_list, dataframe):
-    slide_label = find_slide_label(slide_path, dataframe)
-    return true if slide_label in label_list else false
+    slide_label = get_slide_label(slide_path, dataframe)
+    return True if slide_label in label_list else False
 
-def get_patch_confidence(patch_path):
+def get_patch_confidence(patch_path, sess):
+    bottleneck_input_name  = "import/input/BottleneckInputPlaceholder"
+    output_name = "import/final_result" 
+    input_operation = sess.graph.get_operation_by_name(bottleneck_input_name)
+    output_operation = sess.graph.get_operation_by_name(output_name)
+
     bottleneck = load_bottleneck(patch_path)		
     results = sess.run(output_operation.outputs[0], {
         input_operation.inputs[0]: [bottleneck],
@@ -90,9 +101,9 @@ def get_patch_confidence(patch_path):
     results = np.squeeze(results)
     return results[0]
 
-def get_slide_patch_confidences(test_slide):
-    small_cell_patch_dir = os.path.join(constants.SMALL_CELL_PATCHES, slide_name)
-    large_cell_patch_dir = os.path.join(constants.LARGE_CELL_PATCHES, slide_name)
+def get_slide_patch_confidences(test_slide, sess):
+    small_cell_patch_dir = os.path.join(constants.SMALL_CELL_PATCHES, test_slide)
+    large_cell_patch_dir = os.path.join(constants.LARGE_CELL_PATCHES, test_slide)
 
     small_cell_patches = os.listdir(small_cell_patch_dir)
     small_cell_patches_full_path = [os.path.join(small_cell_patch_dir, x) for x in small_cell_patches]
@@ -100,12 +111,10 @@ def get_slide_patch_confidences(test_slide):
     large_cell_patches = os.listdir(large_cell_patch_dir)
     large_cell_patches_full_path = [os.path.join(large_cell_patch_dir, x) for x in large_cell_patches]
 
-    full_test_slide_patches = small_cell_patches_full_path + large_cell_patches_full_path
+    full_test_slide_patches  = small_cell_patches_full_path + large_cell_patches_full_path
 
-    print("Classifying patches for slide " + slide_name)
-    patch_confidences    = filter(lambda x: get_patch_confidence(x), full_test_slide_patches) 
-    return (full_test_slide_patches, patch_confidences)
-    
+    patch_confidence_values = list(map(lambda x: get_patch_confidence(x, sess), full_test_slide_patches)) 
+    return list(map(lambda x: PatchAndConfidence(x[0], x[1]), zip(full_test_slide_patches, patch_confidence_values)))
 
 def classify_whole_slides(
         test_slide_list_path,
@@ -136,10 +145,6 @@ def classify_whole_slides(
     """
     #TODO: Continue rewriting function from Github
     graph = load_graph(model_file)
-    bottleneck_input_name  = "import/input/BottleneckInputPlaceholder"
-    output_name = "import/final_result" 
-    input_operation = graph.get_operation_by_name(bottleneck_input_name)
-    output_operation = graph.get_operation_by_name(output_name)
 
     if os.path.exists(constants.PATCH_CONFIDENCE_FOLD_SUBFOLDER(fold_number)):
         shutil.rmtree(constants.PATCH_CONFIDENCE_FOLD_SUBFOLDER(fold_number))
@@ -154,14 +159,20 @@ def classify_whole_slides(
         valid_label_list = ["YES", "NO"]
         df = pd.read_csv(label_file)
 
-        test_slide_list     = filter(lambda x: slide_has_label(x, valid_label_list, df),
-                                  load_pickle_from_disk(test_slide_list_path)) 
-        pos_slide_name_list = filter(lambda x: get_slide_label(x, df) == "YES", test_slide_list)
-        neg_slide_name_list = filter(lambda x: get_slide_label(x, df) == "NO", test_slide_list)
+        test_slide_list     = list(filter(lambda x: slide_has_label(x, valid_label_list, df),
+                                  load_pickle_from_disk(test_slide_list_path))) 
+        pos_slide_name_list = list(filter(lambda x: get_slide_label(x, df) == "YES", test_slide_list))
+        neg_slide_name_list = list(filter(lambda x: get_slide_label(x, df) == "NO", test_slide_list))
 
-        (pos_slide_patch_lists, pos_slide_patch_confidence_lists) = map(lambda x: get_slide_patch_confidences(x), pos_slide_name_list)  
-        (neg_slide_patch_lists, neg_slide_patch_confidence_lists) = map(lambda x: get_slide_patch_confidences(x), neg_slide_name_list)
+        pos_slide_patch_confidences = list(map(
+            lambda x: get_slide_patch_confidences(x, sess), pos_slide_name_list))  
+        neg_slide_patch_confidences = list(map(
+            lambda x: get_slide_patch_confidences(x, sess), neg_slide_name_list))
 
+        all_patch_confidences = list(itertools.chain.from_iterable(pos_slide_patch_confidences)) + list(itertools.chain.from_iterable(neg_slide_patch_confidences))
+        all_patch_confidences.sort(key = lambda x: x.confidence)
+
+    write_pickle_to_disk(constants.CONFIDENCE_CONTAINER_LIST(fold_number), all_patch_confidences)
 
 
 def draw_confidence_histograms(fold_number, slide_category, num_graphs_per_row=3):
@@ -171,6 +182,8 @@ def draw_confidence_histograms(fold_number, slide_category, num_graphs_per_row=3
     on a subplot in the same figure.
 
     Args:
+        confidence_lists (List of float lists): List of confidence value
+            lists
         confidence_lists (List of float lists): List of confidence value
             lists
         histogram_folder (String): Top-level directory for storing histogram plots
@@ -628,5 +641,3 @@ def create_visualization_helper_files():
             i)
 
         fold_vote_container_lists.append(vote_container_list)
-        i += 1
-    write_pickle_to_disk(constants.FOLD_VOTE_CONTAINER_LISTS_PATH, fold_vote_container_lists)

@@ -39,6 +39,7 @@ def write_pickle_to_disk(file_name, python_object):
         file_pointer = open(file_name, "wb")
         pickle.dump(python_object, file_pointer)
     except Exception as error:
+        print(error)
         print("Unable to write pickle " + file_name + " to disk.  Do you have sufficient permissions?")
         print("Exitting...")
         sys.exit()

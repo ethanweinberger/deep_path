@@ -1,5 +1,5 @@
 from utils.vis_utils import visualize_confidence_containers 
-from utils.vis_utils import Confidence_Container
+from utils.vis_utils import PatchAndConfidence
 import argparse
 
 if __name__ == "__main__":
